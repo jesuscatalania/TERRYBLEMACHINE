@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import App from "@/App";
+import { useAppStore } from "@/stores/appStore";
 
 function renderAt(path: string) {
   return render(
@@ -12,18 +13,40 @@ function renderAt(path: string) {
 }
 
 describe("App", () => {
-  it("renders the home page at /", () => {
+  beforeEach(() => {
+    useAppStore.setState({ theme: "dark", sidebarOpen: true, activeModule: "website" });
+  });
+
+  it("redirects / → /website and renders the Website placeholder", async () => {
     renderAt("/");
-    expect(screen.getByRole("heading", { name: /describe what to build/i })).toBeInTheDocument();
+    expect(await screen.findByText(/Coming soon — Website/)).toBeInTheDocument();
+    expect(useAppStore.getState().activeModule).toBe("website");
+  });
+
+  it.each([
+    ["/website", "Website", "website"],
+    ["/graphic2d", "Graphic 2D", "graphic2d"],
+    ["/graphic3d", "Pseudo-3D", "graphic3d"],
+    ["/video", "Video", "video"],
+    ["/typography", "Type & Logo", "typography"],
+  ] as const)("renders %s placeholder and syncs store", (path, label, id) => {
+    renderAt(path);
+    expect(screen.getByText(new RegExp(`Coming soon — ${label}`))).toBeInTheDocument();
+    expect(useAppStore.getState().activeModule).toBe(id);
   });
 
   it("renders the design system page at /design-system", () => {
     renderAt("/design-system");
-    expect(screen.getByRole("heading", { name: /design system/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^design system$/i })).toBeInTheDocument();
   });
 
-  it("renders the shell (wordmark + status bar) on any route", () => {
-    renderAt("/design-system");
+  it("unknown routes fall back to /website", async () => {
+    renderAt("/nonexistent");
+    expect(await screen.findByText(/Coming soon — Website/)).toBeInTheDocument();
+  });
+
+  it("renders the shell on every route", () => {
+    renderAt("/video");
     expect(screen.getByText("TERRYBLEMACHINE")).toBeInTheDocument();
     expect(screen.getByRole("contentinfo")).toBeInTheDocument();
   });

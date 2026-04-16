@@ -1,6 +1,9 @@
 import { ChevronLeft, ChevronRight, Layers } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { MODULES } from "@/components/shell/modules";
 import { SidebarItem } from "@/components/shell/SidebarItem";
+import { moduleToPath } from "@/lib/moduleRoutes";
+import type { ModuleId } from "@/stores/appStore";
 import { useAppStore } from "@/stores/appStore";
 import { useProjectStore } from "@/stores/projectStore";
 
@@ -24,6 +27,12 @@ function SectionLabel({ children }: { children: string }) {
 export function Sidebar() {
   const { activeModule, setActiveModule, sidebarOpen, toggleSidebar } = useAppStore();
   const currentProject = useProjectStore((s) => s.currentProject);
+  const navigate = useNavigate();
+
+  const selectModule = (id: ModuleId) => {
+    setActiveModule(id);
+    navigate(moduleToPath(id));
+  };
 
   return (
     <aside className="flex h-full flex-col border-neutral-dark-600 border-r bg-neutral-dark-900">
@@ -46,7 +55,7 @@ export function Sidebar() {
             index={m.index}
             shortcut={m.shortcut}
             active={m.id === activeModule}
-            onSelect={setActiveModule}
+            onSelect={selectModule}
           />
         ))}
       </nav>

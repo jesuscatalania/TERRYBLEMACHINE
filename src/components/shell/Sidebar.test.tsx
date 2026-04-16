@@ -1,8 +1,17 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it } from "vitest";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { useAppStore } from "@/stores/appStore";
+
+function renderSidebar(path = "/website") {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <Sidebar />
+    </MemoryRouter>,
+  );
+}
 
 describe("Sidebar", () => {
   beforeEach(() => {
@@ -10,12 +19,12 @@ describe("Sidebar", () => {
   });
 
   it("renders wordmark", () => {
-    render(<Sidebar />);
+    renderSidebar();
     expect(screen.getByText("TERRYBLEMACHINE")).toBeInTheDocument();
   });
 
   it("renders all 5 modules", () => {
-    render(<Sidebar />);
+    renderSidebar();
     for (const label of ["Website", "Graphic 2D", "Pseudo-3D", "Video", "Type & Logo"]) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
@@ -23,7 +32,7 @@ describe("Sidebar", () => {
 
   it("marks the active module with aria-current=page", () => {
     useAppStore.setState({ activeModule: "video" });
-    render(<Sidebar />);
+    renderSidebar();
     const active = screen
       .getAllByRole("button")
       .find((el) => el.getAttribute("aria-current") === "page");
@@ -32,20 +41,20 @@ describe("Sidebar", () => {
 
   it("selecting another module updates the store", async () => {
     const user = userEvent.setup();
-    render(<Sidebar />);
+    renderSidebar();
     await user.click(screen.getByText("Pseudo-3D"));
     expect(useAppStore.getState().activeModule).toBe("graphic3d");
   });
 
   it("renders sections MODULES and PROJECT", () => {
-    render(<Sidebar />);
+    renderSidebar();
     expect(screen.getByText("Modules")).toBeInTheDocument();
     expect(screen.getByText("Project")).toBeInTheDocument();
   });
 
   it("clicking the collapse button toggles sidebarOpen in the store", async () => {
     const user = userEvent.setup();
-    render(<Sidebar />);
+    renderSidebar();
     const toggle = screen.getByRole("button", { name: /collapse sidebar|expand sidebar/i });
     await user.click(toggle);
     expect(useAppStore.getState().sidebarOpen).toBe(false);

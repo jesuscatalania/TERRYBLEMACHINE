@@ -1,7 +1,17 @@
 import { render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it } from "vitest";
 import { Shell } from "@/components/shell/Shell";
 import { useAppStore } from "@/stores/appStore";
+
+function renderShell(children: ReactNode) {
+  return render(
+    <MemoryRouter initialEntries={["/website"]}>
+      <Shell>{children}</Shell>
+    </MemoryRouter>,
+  );
+}
 
 describe("Shell", () => {
   beforeEach(() => {
@@ -9,11 +19,7 @@ describe("Shell", () => {
   });
 
   it("renders sidebar, header, footer and children", () => {
-    render(
-      <Shell>
-        <p>main-content</p>
-      </Shell>,
-    );
+    renderShell(<p>main-content</p>);
     expect(screen.getByText("TERRYBLEMACHINE")).toBeInTheDocument();
     expect(screen.getByRole("banner")).toBeInTheDocument();
     expect(screen.getByRole("contentinfo")).toBeInTheDocument();
@@ -21,11 +27,7 @@ describe("Shell", () => {
   });
 
   it("renders the main landmark with the project content", () => {
-    render(
-      <Shell>
-        <div data-testid="child" />
-      </Shell>,
-    );
+    renderShell(<div data-testid="child" />);
     expect(screen.getByRole("main")).toContainElement(screen.getByTestId("child"));
   });
 });
