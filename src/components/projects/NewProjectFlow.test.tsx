@@ -18,8 +18,7 @@ vi.mock("@/lib/projectCommands", () => ({
   openProjectFile: vi.fn(),
   deleteProject: vi.fn(),
   projectsRoot: vi.fn().mockResolvedValue("/tmp"),
-  isProjectIpcError: (v: unknown) =>
-    typeof v === "object" && v !== null && "kind" in v,
+  isProjectIpcError: (v: unknown) => typeof v === "object" && v !== null && "kind" in v,
 }));
 
 describe("New Project flow", () => {
