@@ -3920,12 +3920,14 @@ dependencies = [
 name = "terryblemachine"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "security-framework",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
+ "tempfile",
  "thiserror 2.0.18",
 ]
 

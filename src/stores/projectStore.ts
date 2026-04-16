@@ -18,6 +18,8 @@ export interface ProjectState {
   openProject: (project: Project) => void;
   closeProject: () => void;
   addRecent: (project: Project) => void;
+  /** Replace recents with a freshly-loaded list (sorted newest-first by caller). */
+  hydrateRecents: (projects: readonly Project[]) => void;
   clearRecents: () => void;
 }
 
@@ -40,5 +42,6 @@ export const useProjectStore = create<ProjectState>((set) => ({
       return { recents: [project, ...withoutDupe].slice(0, RECENTS_LIMIT) };
     });
   },
+  hydrateRecents: (projects) => set({ recents: projects.slice(0, RECENTS_LIMIT) }),
   clearRecents: () => set({ recents: [] }),
 }));

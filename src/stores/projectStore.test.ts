@@ -68,4 +68,17 @@ describe("projectStore", () => {
     }
     expect(useProjectStore.getState().recents).toHaveLength(10);
   });
+
+  it("hydrateRecents replaces the list and caps at 10", () => {
+    const projects = Array.from({ length: 15 }, (_, i) => ({
+      id: `p${i}`,
+      name: `P${i}`,
+      module: "website" as const,
+      path: `/p${i}`,
+      createdAt: "2026-04-16",
+    }));
+    useProjectStore.getState().hydrateRecents(projects);
+    expect(useProjectStore.getState().recents).toHaveLength(10);
+    expect(useProjectStore.getState().recents[0]?.id).toBe("p0");
+  });
 });

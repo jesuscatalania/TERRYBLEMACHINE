@@ -1,10 +1,17 @@
 import { AnimatePresence, motion } from "framer-motion";
+import { useCallback, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { NewProjectDialog } from "@/components/projects/NewProjectDialog";
 import { Shell } from "@/components/shell/Shell";
 import { Toaster } from "@/components/ui/Toast";
 import { useModuleRouteSync } from "@/hooks/useModuleRouteSync";
+import { useProjectsBoot } from "@/hooks/useProjectsBoot";
+import { createProject as createProjectCommand, type NewProjectInput } from "@/lib/projectCommands";
 import { DesignSystemPage } from "@/pages/DesignSystem";
 import { ModulePlaceholder } from "@/pages/ModulePlaceholder";
+import { useAppStore } from "@/stores/appStore";
+import { useProjectStore } from "@/stores/projectStore";
+import { useUiStore } from "@/stores/uiStore";
 
 function AnimatedRoutes() {
   const location = useLocation();
@@ -36,11 +43,36 @@ function AnimatedRoutes() {
 }
 
 function App() {
+  useProjectsBoot();
+  const [newDialogOpen, setNewDialogOpen] = useState(false);
+  const activeModule = useAppStore((s) => s.activeModule);
+  const openProject = useProjectStore((s) => s.openProject);
+  const notify = useUiStore((s) => s.notify);
+
+  const handleCreate = useCallback(
+    async (input: NewProjectInput) => {
+      const created = await createProjectCommand(input);
+      openProject(created);
+      notify({
+        kind: "success",
+        message: `Project "${created.name}" created`,
+        detail: created.path,
+      });
+    },
+    [openProject, notify],
+  );
+
   return (
     <>
-      <Shell>
+      <Shell onNew={() => setNewDialogOpen(true)}>
         <AnimatedRoutes />
       </Shell>
+      <NewProjectDialog
+        open={newDialogOpen}
+        onClose={() => setNewDialogOpen(false)}
+        onCreate={handleCreate}
+        defaultModule={activeModule}
+      />
       <Toaster />
     </>
   );

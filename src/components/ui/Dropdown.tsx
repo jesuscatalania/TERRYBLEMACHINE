@@ -16,6 +16,8 @@ export interface DropdownProps {
   placeholder?: string;
   /** When true, shows a search input that filters the options. */
   searchable?: boolean;
+  /** HTML id of the combobox trigger — use for `<label htmlFor>` association. */
+  id?: string;
   className?: string;
 }
 
@@ -25,6 +27,7 @@ export function Dropdown({
   onChange,
   placeholder = "Select…",
   searchable = false,
+  id,
   className = "",
 }: DropdownProps) {
   const [open, setOpen] = useState(false);
@@ -61,6 +64,7 @@ export function Dropdown({
     <div ref={rootRef} className={`relative inline-block ${className}`}>
       <button
         type="button"
+        id={id}
         role="combobox"
         aria-haspopup="listbox"
         aria-expanded={open}
