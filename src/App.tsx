@@ -21,10 +21,15 @@ function App() {
       </p>
 
       <form onSubmit={greet} className="flex w-full max-w-md gap-2">
+        <label htmlFor="greet-input" className="sr-only">
+          Name
+        </label>
         <input
           id="greet-input"
+          name="name"
           onChange={(e) => setName(e.currentTarget.value)}
           placeholder="Enter a name..."
+          aria-label="Name"
           className="flex-1 rounded-md border border-neutral-dark-600 bg-neutral-dark-800 px-3 py-2 text-sm text-neutral-dark-100 placeholder:text-neutral-dark-400 focus:border-accent-500 focus:outline-none"
         />
         <button
