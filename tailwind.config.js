@@ -34,22 +34,41 @@ export default {
       },
       fontFamily: {
         sans: [
+          "Inter",
           "-apple-system",
           "BlinkMacSystemFont",
           "SF Pro Text",
-          "Inter",
           "system-ui",
           "sans-serif",
         ],
-        mono: ["SF Mono", "ui-monospace", "Menlo", "Monaco", "Cascadia Code", "monospace"],
-        display: ["SF Pro Display", "-apple-system", "Inter", "system-ui", "sans-serif"],
+        mono: [
+          "IBM Plex Mono",
+          "SF Mono",
+          "ui-monospace",
+          "Menlo",
+          "Monaco",
+          "Cascadia Code",
+          "monospace",
+        ],
+        display: ["Inter", "SF Pro Display", "-apple-system", "system-ui", "sans-serif"],
+      },
+      fontSize: {
+        "2xs": ["0.625rem", { lineHeight: "0.875rem" }],
       },
       spacing: {
+        "shell-header": "3rem",
+        "shell-sidebar": "15rem",
+        "shell-sidebar-collapsed": "3.5rem",
+        "shell-footer": "1.75rem",
         18: "4.5rem",
         128: "32rem",
       },
       borderRadius: {
         xs: "0.125rem",
+      },
+      letterSpacing: {
+        label: "0.08em",
+        "label-wide": "0.14em",
       },
       boxShadow: {
         soft: "0 1px 2px rgba(0,0,0,0.12), 0 1px 3px rgba(0,0,0,0.2)",
