@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    @apply h-full;
+  }
+
+  body {
+    @apply bg-neutral-dark-900 text-neutral-dark-100 font-sans antialiased;
+  }
+
+  ::selection {
+    @apply bg-accent-500/30 text-neutral-dark-50;
+  }
+}

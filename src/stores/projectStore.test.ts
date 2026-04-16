@@ -1,0 +1,71 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import { useProjectStore } from "@/stores/projectStore";
+
+describe("projectStore", () => {
+  beforeEach(() => {
+    useProjectStore.setState({ currentProject: null, recents: [] });
+  });
+
+  it("starts with no open project", () => {
+    expect(useProjectStore.getState().currentProject).toBeNull();
+  });
+
+  it("opens a project and records it as current", () => {
+    const project = {
+      id: "p1",
+      name: "Demo",
+      module: "website" as const,
+      path: "/tmp/demo",
+      createdAt: "2026-04-16T10:00:00Z",
+    };
+    useProjectStore.getState().openProject(project);
+    expect(useProjectStore.getState().currentProject).toEqual(project);
+  });
+
+  it("closing a project clears current", () => {
+    useProjectStore.getState().openProject({
+      id: "p1",
+      name: "Demo",
+      module: "website",
+      path: "/tmp/demo",
+      createdAt: "2026-04-16T10:00:00Z",
+    });
+    useProjectStore.getState().closeProject();
+    expect(useProjectStore.getState().currentProject).toBeNull();
+  });
+
+  it("adds a project to recents without duplicates, most recent first", () => {
+    const p1 = {
+      id: "1",
+      name: "A",
+      module: "website" as const,
+      path: "/a",
+      createdAt: "2026-01-01",
+    };
+    const p2 = {
+      id: "2",
+      name: "B",
+      module: "video" as const,
+      path: "/b",
+      createdAt: "2026-01-02",
+    };
+    useProjectStore.getState().addRecent(p1);
+    useProjectStore.getState().addRecent(p2);
+    useProjectStore.getState().addRecent(p1);
+    const recents = useProjectStore.getState().recents;
+    expect(recents.map((p) => p.id)).toEqual(["1", "2"]);
+  });
+
+  it("caps recents at 10 entries", () => {
+    for (let i = 0; i < 15; i++) {
+      useProjectStore.getState().addRecent({
+        id: `p${i}`,
+        name: `P${i}`,
+        module: "website",
+        path: `/p${i}`,
+        createdAt: "2026-04-16",
+      });
+    }
+    expect(useProjectStore.getState().recents).toHaveLength(10);
+  });
+});
