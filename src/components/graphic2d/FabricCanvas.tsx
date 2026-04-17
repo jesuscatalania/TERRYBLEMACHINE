@@ -66,6 +66,8 @@ export interface FabricCanvasHandle {
   exitSelectionMode: () => void;
   /** True if at least one crop selection exists on the canvas. */
   hasCropSelection: () => boolean;
+  /** Patch font / color / size on a Textbox layer. Missing keys are left unchanged. */
+  updateText: (id: string, patch: { font?: string; color?: string; size?: number }) => void;
 }
 
 export interface FabricCanvasProps {
@@ -509,6 +511,17 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
           return c
             .getObjects()
             .some((o) => (o as unknown as { __cropSelection?: boolean }).__cropSelection === true);
+        },
+        updateText(id, patch) {
+          const c = canvasRef.current;
+          if (!c) return;
+          const obj = findById(c, id);
+          if (!obj || !(obj instanceof fabric.Textbox)) return;
+          if (patch.font !== undefined) obj.set({ fontFamily: patch.font });
+          if (patch.color !== undefined) obj.set({ fill: patch.color });
+          if (patch.size !== undefined) obj.set({ fontSize: patch.size });
+          c.requestRenderAll();
+          refreshLayers();
         },
       }),
       [],

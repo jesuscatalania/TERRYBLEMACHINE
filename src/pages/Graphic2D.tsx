@@ -11,6 +11,7 @@ import {
   type FabricLayer,
 } from "@/components/graphic2d/FabricCanvas";
 import { LayerList } from "@/components/graphic2d/LayerList";
+import { TextControls } from "@/components/graphic2d/TextControls";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Input } from "@/components/ui/Input";
@@ -328,6 +329,17 @@ export function Graphic2DPage() {
               </Button>
             )}
           </div>
+
+          {layers.find((l) => l.id === selectedId)?.type === "text" ? (
+            <div className="mt-2">
+              <TextControls
+                key={selectedId}
+                onChange={(patch) => {
+                  if (selectedId) canvasRef.current?.updateText(selectedId, patch);
+                }}
+              />
+            </div>
+          ) : null}
 
           <div className="mt-2 flex flex-col gap-2">
             <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
