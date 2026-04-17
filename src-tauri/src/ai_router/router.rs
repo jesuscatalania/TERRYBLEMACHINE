@@ -1,0 +1,230 @@
+//! Routing strategy + retry policy.
+
+use std::time::Duration;
+
+use super::models::{AiRequest, Complexity, Model, TaskKind};
+
+/// What the router will try, in order: primary first, then each fallback.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteDecision {
+    pub primary: Model,
+    pub fallbacks: Vec<Model>,
+}
+
+impl RouteDecision {
+    fn new(primary: Model) -> Self {
+        Self {
+            primary,
+            fallbacks: Vec::new(),
+        }
+    }
+    fn with_fallbacks(primary: Model, fallbacks: Vec<Model>) -> Self {
+        Self { primary, fallbacks }
+    }
+}
+
+/// Strategy interface so tests (or future config-driven routing) can swap
+/// in alternative logic without changing the router.
+pub trait RoutingStrategy: Send + Sync {
+    fn select(&self, request: &AiRequest) -> RouteDecision;
+}
+
+/// Default routing table derived from `docs/LLM-STRATEGIE.md`.
+pub struct DefaultRoutingStrategy;
+
+impl RoutingStrategy for DefaultRoutingStrategy {
+    fn select(&self, request: &AiRequest) -> RouteDecision {
+        use Complexity::*;
+        use Model::*;
+        use TaskKind::*;
+
+        match (request.task, request.complexity) {
+            // Text / code — cost-tier mapping.
+            (TextGeneration, Complex) => {
+                RouteDecision::with_fallbacks(ClaudeOpus, vec![ClaudeSonnet])
+            }
+            (TextGeneration, Medium) => {
+                RouteDecision::with_fallbacks(ClaudeSonnet, vec![ClaudeHaiku])
+            }
+            (TextGeneration, Simple) => RouteDecision::new(ClaudeHaiku),
+
+            // Images — fal.ai is cheaper & faster; complex prompts get Flux Pro.
+            (ImageGeneration, Simple) => RouteDecision::with_fallbacks(FalSdxl, vec![FalFluxPro]),
+            (ImageGeneration, _) => {
+                RouteDecision::with_fallbacks(FalFluxPro, vec![ReplicateFluxDev])
+            }
+
+            (ImageEdit, _) => RouteDecision::new(FalFluxPro),
+            (Inpaint, _) => RouteDecision::new(FalFluxFill),
+            (Upscale, _) => RouteDecision::new(FalRealEsrgan),
+
+            // Logos — only Ideogram reliably renders text inside images.
+            (Logo, _) => RouteDecision::new(IdeogramV3),
+
+            // Video — Kling leads on quality, Runway on motion control,
+            // Higgsfield aggregates alternatives.
+            (TextToVideo, _) | (ImageToVideo, _) => {
+                RouteDecision::with_fallbacks(Kling20, vec![RunwayGen3, HiggsfieldMulti])
+            }
+            (VideoMontage, _) => RouteDecision::new(ShotstackMontage),
+
+            // 3D — Meshy is the only Pro-grade option; no fallback yet.
+            (Text3D, _) => RouteDecision::new(MeshyText3D),
+            (Image3D, _) => RouteDecision::new(MeshyImage3D),
+        }
+    }
+}
+
+// ─── Retry policy ──────────────────────────────────────────────────────────
+
+/// Exponential backoff with a ceiling. Default: 3 attempts, 200ms base, 2×
+/// factor, 5s max (so delays are 200ms, 400ms, 800ms, … up to 5s).
+#[derive(Debug, Clone, Copy)]
+pub struct RetryPolicy {
+    pub max_attempts: u32,
+    pub base: Duration,
+    pub factor: u32,
+    pub max: Duration,
+}
+
+impl RetryPolicy {
+    pub fn default_policy() -> Self {
+        Self {
+            max_attempts: 3,
+            base: Duration::from_millis(200),
+            factor: 2,
+            max: Duration::from_secs(5),
+        }
+    }
+
+    /// Delay before the *next* attempt, given zero-indexed attempt number.
+    pub fn backoff_for(&self, attempt: u32) -> Duration {
+        let multiplier = self.factor.saturating_pow(attempt);
+        let raw = self.base.saturating_mul(multiplier);
+        if raw > self.max {
+            self.max
+        } else {
+            raw
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ai_router::models::{Priority, TaskKind};
+
+    fn req(task: TaskKind, complexity: Complexity) -> AiRequest {
+        AiRequest {
+            id: "t".into(),
+            task,
+            priority: Priority::Normal,
+            complexity,
+            prompt: String::new(),
+            payload: serde_json::Value::Null,
+        }
+    }
+
+    // ── Routing ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn text_complex_uses_opus_falls_back_to_sonnet() {
+        let d = DefaultRoutingStrategy.select(&req(TaskKind::TextGeneration, Complexity::Complex));
+        assert_eq!(d.primary, Model::ClaudeOpus);
+        assert_eq!(d.fallbacks, vec![Model::ClaudeSonnet]);
+    }
+
+    #[test]
+    fn text_medium_uses_sonnet() {
+        let d = DefaultRoutingStrategy.select(&req(TaskKind::TextGeneration, Complexity::Medium));
+        assert_eq!(d.primary, Model::ClaudeSonnet);
+        assert_eq!(d.fallbacks, vec![Model::ClaudeHaiku]);
+    }
+
+    #[test]
+    fn text_simple_uses_haiku_no_fallback() {
+        let d = DefaultRoutingStrategy.select(&req(TaskKind::TextGeneration, Complexity::Simple));
+        assert_eq!(d.primary, Model::ClaudeHaiku);
+        assert!(d.fallbacks.is_empty());
+    }
+
+    #[test]
+    fn image_simple_uses_sdxl() {
+        let d = DefaultRoutingStrategy.select(&req(TaskKind::ImageGeneration, Complexity::Simple));
+        assert_eq!(d.primary, Model::FalSdxl);
+        assert_eq!(d.fallbacks, vec![Model::FalFluxPro]);
+    }
+
+    #[test]
+    fn image_medium_uses_flux_pro_with_replicate_fallback() {
+        let d = DefaultRoutingStrategy.select(&req(TaskKind::ImageGeneration, Complexity::Medium));
+        assert_eq!(d.primary, Model::FalFluxPro);
+        assert_eq!(d.fallbacks, vec![Model::ReplicateFluxDev]);
+    }
+
+    #[test]
+    fn logo_uses_ideogram_only() {
+        let d = DefaultRoutingStrategy.select(&req(TaskKind::Logo, Complexity::Medium));
+        assert_eq!(d.primary, Model::IdeogramV3);
+        assert!(d.fallbacks.is_empty());
+    }
+
+    #[test]
+    fn video_chain_is_kling_runway_higgsfield() {
+        let d = DefaultRoutingStrategy.select(&req(TaskKind::TextToVideo, Complexity::Medium));
+        assert_eq!(d.primary, Model::Kling20);
+        assert_eq!(d.fallbacks, vec![Model::RunwayGen3, Model::HiggsfieldMulti]);
+    }
+
+    #[test]
+    fn video_montage_uses_shotstack() {
+        let d = DefaultRoutingStrategy.select(&req(TaskKind::VideoMontage, Complexity::Medium));
+        assert_eq!(d.primary, Model::ShotstackMontage);
+    }
+
+    #[test]
+    fn upscale_uses_real_esrgan() {
+        let d = DefaultRoutingStrategy.select(&req(TaskKind::Upscale, Complexity::Simple));
+        assert_eq!(d.primary, Model::FalRealEsrgan);
+    }
+
+    #[test]
+    fn text_3d_uses_meshy() {
+        let d = DefaultRoutingStrategy.select(&req(TaskKind::Text3D, Complexity::Medium));
+        assert_eq!(d.primary, Model::MeshyText3D);
+    }
+
+    #[test]
+    fn image_3d_uses_meshy_image_endpoint() {
+        let d = DefaultRoutingStrategy.select(&req(TaskKind::Image3D, Complexity::Medium));
+        assert_eq!(d.primary, Model::MeshyImage3D);
+    }
+
+    // ── Retry policy ──────────────────────────────────────────────────────
+
+    #[test]
+    fn retry_default_policy_grows_exponentially() {
+        let p = RetryPolicy::default_policy();
+        assert_eq!(p.backoff_for(0), Duration::from_millis(200));
+        assert_eq!(p.backoff_for(1), Duration::from_millis(400));
+        assert_eq!(p.backoff_for(2), Duration::from_millis(800));
+    }
+
+    #[test]
+    fn retry_backoff_clamped_to_max() {
+        let p = RetryPolicy::default_policy();
+        assert_eq!(p.backoff_for(20), p.max);
+    }
+
+    #[test]
+    fn retry_zero_policy_returns_zero() {
+        let p = RetryPolicy {
+            max_attempts: 1,
+            base: Duration::from_millis(0),
+            factor: 1,
+            max: Duration::from_millis(0),
+        };
+        assert_eq!(p.backoff_for(0), Duration::ZERO);
+        assert_eq!(p.backoff_for(5), Duration::ZERO);
+    }
+}
