@@ -1,4 +1,5 @@
 pub mod ai_router;
+pub mod api_clients;
 pub mod keychain;
 pub mod projects;
 

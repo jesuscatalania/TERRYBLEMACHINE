@@ -17,7 +17,7 @@ mod router;
 
 pub use errors::{ProviderError, RouterError};
 pub use models::{
-    AiClient, AiRequest, AiResponse, Complexity, Model, Priority, Provider, TaskKind,
+    AiClient, AiRequest, AiResponse, Complexity, Model, Priority, Provider, ProviderUsage, TaskKind,
 };
 pub use queue::{PriorityQueue, QueueStatus, QueuedRequest};
 pub use router::{DefaultRoutingStrategy, RetryPolicy, RouteDecision, RoutingStrategy};
@@ -181,6 +181,9 @@ mod tests {
         }
         async fn health_check(&self) -> bool {
             true
+        }
+        async fn get_usage(&self) -> Result<ProviderUsage, ProviderError> {
+            Ok(ProviderUsage::default())
         }
     }
 

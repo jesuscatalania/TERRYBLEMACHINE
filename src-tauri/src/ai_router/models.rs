@@ -151,7 +151,11 @@ pub struct AiResponse {
 }
 
 /// Provider-client abstraction. Individual clients land in `api_clients/` in
-/// Schritt 2.2; for 2.1 we only need the trait + a test double.
+/// Schritt 2.2.
+///
+/// Method names use `execute` (internal router vocabulary). Public impls in
+/// `api_clients/` may expose richer domain methods (e.g. `send_request`,
+/// `stream_completion`) on top.
 #[async_trait]
 pub trait AiClient: Send + Sync {
     fn provider(&self) -> Provider;
@@ -159,4 +163,23 @@ pub trait AiClient: Send + Sync {
     async fn execute(&self, model: Model, request: &AiRequest)
         -> Result<AiResponse, ProviderError>;
     async fn health_check(&self) -> bool;
+    /// Optional: service-reported usage (credits, rate-limit headers, etc.).
+    /// Implementations that don't publish usage data return an empty struct.
+    async fn get_usage(&self) -> Result<ProviderUsage, ProviderError>;
+}
+
+/// Provider-reported usage snapshot. All fields are optional because each
+/// service exposes a different subset.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ProviderUsage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credits_used: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credits_remaining: Option<u64>,
+    /// RFC 3339 timestamp at which rate-limit window resets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate_limit_reset: Option<String>,
+    /// Human-readable note (e.g. plan name, quota label).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
 }
