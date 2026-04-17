@@ -44,6 +44,7 @@ fn default_result(url: &str) -> AnalysisResult {
         custom_properties: HashMap::new(),
         layout: "other".to_string(),
         screenshot_path: None,
+        assets: Vec::new(),
     }
 }
 
@@ -53,6 +54,7 @@ impl UrlAnalyzer for StubUrlAnalyzer {
         &self,
         url: &str,
         _screenshot_path: Option<&Path>,
+        _assets_dir: Option<&Path>,
     ) -> Result<AnalysisResult, AnalyzerError> {
         if let Some(msg) = self
             .force_error
@@ -77,7 +79,7 @@ mod tests {
     #[tokio::test]
     async fn returns_default_for_unseeded_url() {
         let a = StubUrlAnalyzer::new();
-        let r = a.analyze("https://example.com", None).await.unwrap();
+        let r = a.analyze("https://example.com", None, None).await.unwrap();
         assert_eq!(r.url, "https://example.com");
         assert_eq!(r.status, 200);
         assert!(r.colors.is_empty());
@@ -97,9 +99,10 @@ mod tests {
             custom_properties: HashMap::new(),
             layout: "grid".into(),
             screenshot_path: None,
+            assets: Vec::new(),
         };
         a.seed("https://foo", seeded.clone());
-        let r = a.analyze("https://foo", None).await.unwrap();
+        let r = a.analyze("https://foo", None, None).await.unwrap();
         assert_eq!(r, seeded);
     }
 
@@ -119,10 +122,11 @@ mod tests {
                 custom_properties: HashMap::new(),
                 layout: "other".into(),
                 screenshot_path: None,
+                assets: Vec::new(),
             },
         );
         a.force_error("playwright crashed");
-        let err = a.analyze("https://foo", None).await.unwrap_err();
+        let err = a.analyze("https://foo", None, None).await.unwrap_err();
         assert!(matches!(err, AnalyzerError::Sidecar(_)));
     }
 }

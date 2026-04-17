@@ -1,16 +1,19 @@
 import { Laptop, Smartphone, Tablet } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
-import { Textarea } from "@/components/ui/Input";
+import { Input, Textarea } from "@/components/ui/Input";
 import { Tabs } from "@/components/ui/Tabs";
 import { CodeEditor } from "@/components/website/CodeEditor";
 import { DevicePreview, type DeviceSize } from "@/components/website/DevicePreview";
 import {
+  type AnalysisResult,
+  analyzeUrl,
   type GeneratedFile,
   type GeneratedProject,
   generateWebsite,
   type Template,
 } from "@/lib/websiteCommands";
+import { useProjectStore } from "@/stores/projectStore";
 import { useUiStore } from "@/stores/uiStore";
 
 const TEMPLATES: { id: Template; label: string }[] = [
@@ -28,7 +31,34 @@ export function WebsiteBuilderPage() {
   const [project, setProject] = useState<GeneratedProject | null>(null);
   const [device, setDevice] = useState<DeviceSize>("desktop");
   const [busy, setBusy] = useState(false);
+  const [refUrl, setRefUrl] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const notify = useUiStore((s) => s.notify);
+  const currentProject = useProjectStore((s) => s.currentProject);
+
+  async function handleAnalyze() {
+    const trimmed = refUrl.trim();
+    if (!trimmed) return;
+    setAnalyzing(true);
+    try {
+      const result = await analyzeUrl(trimmed, { projectPath: currentProject?.path });
+      setAnalysis(result);
+      notify({
+        kind: "success",
+        message: "URL analyzed",
+        detail: result.title || result.url,
+      });
+    } catch (err) {
+      notify({
+        kind: "error",
+        message: "URL analysis failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setAnalyzing(false);
+    }
+  }
 
   async function submit() {
     if (!prompt.trim()) return;
@@ -38,6 +68,7 @@ export function WebsiteBuilderPage() {
         prompt: prompt.trim(),
         template,
         module: "website",
+        reference: analysis ?? null,
       });
       setProject(result);
       notify({ kind: "success", message: "Generated", detail: result.summary });
@@ -71,6 +102,39 @@ export function WebsiteBuilderPage() {
           onChange={(id) => setTemplate(id as Template)}
           items={TEMPLATES.map((t) => ({ id: t.id, label: t.label }))}
         />
+        <div className="flex items-end gap-2">
+          <div className="flex-1">
+            <Input
+              label="Reference URL (optional)"
+              id="website-ref-url"
+              placeholder="https://stripe.com"
+              value={refUrl}
+              onValueChange={setRefUrl}
+            />
+          </div>
+          <Button
+            variant="secondary"
+            onClick={handleAnalyze}
+            disabled={!refUrl.trim() || analyzing}
+          >
+            {analyzing ? "Analyzing…" : "Analyze"}
+          </Button>
+        </div>
+        {analysis ? (
+          <div className="rounded-xs border border-neutral-dark-700 bg-neutral-dark-900 p-3 text-2xs">
+            <div className="font-mono text-accent-500 uppercase tracking-label">
+              Analyzed · {analysis.title || analysis.url}
+            </div>
+            <div className="mt-1 text-neutral-dark-300">
+              Colors: {analysis.colors.slice(0, 6).join(", ") || "—"}
+              {" — "}
+              Fonts: {analysis.fonts.slice(0, 3).join(", ") || "—"}
+              {analysis.assets && analysis.assets.length > 0
+                ? ` — Assets: ${analysis.assets.length}`
+                : ""}
+            </div>
+          </div>
+        ) : null}
         <Textarea
           id="website-brief"
           label="Describe the site"

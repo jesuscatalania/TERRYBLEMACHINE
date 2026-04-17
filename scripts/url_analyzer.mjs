@@ -7,34 +7,114 @@
  * style + layout signal for the code generator to mirror.
  *
  * Usage:
- *   node scripts/url_analyzer.mjs <url> [--screenshot=<path>]
+ *   node scripts/url_analyzer.mjs <url> [--screenshot=<path>] [--assets-dir=<dir>]
  *
  * Emits a single JSON object on stdout. Any diagnostic logging goes to
  * stderr so the Rust caller can parse stdout cleanly.
+ *
+ * When `--assets-dir` is provided, referenced images / icons / @font-face
+ * sources are downloaded into that directory (created if missing). Each
+ * download is capped at a safe filename length; failures are swallowed so
+ * a single broken asset never breaks the overall analysis.
  */
 
+import { promises as fs } from "node:fs";
+import path from "node:path";
+
 import { chromium } from "playwright";
+
+const MAX_ASSETS = 50;
 
 function log(...args) {
   console.error("[url_analyzer]", ...args);
 }
 
 function parseArgs(argv) {
-  const args = { url: null, screenshot: null };
+  const args = { url: null, screenshot: null, assetsDir: null };
   for (const a of argv.slice(2)) {
     if (!a.startsWith("--") && !args.url) {
       args.url = a;
     } else if (a.startsWith("--screenshot=")) {
       args.screenshot = a.slice("--screenshot=".length);
+    } else if (a.startsWith("--assets-dir=")) {
+      args.assetsDir = a.slice("--assets-dir=".length);
     }
   }
   return args;
 }
 
+/**
+ * Derive a filesystem-safe filename for the given URL.
+ * Strips the scheme, keeps only `[A-Za-z0-9._-]`, and clamps the
+ * trailing 160 characters (preserving whatever extension the URL has).
+ */
+function safeFilename(u) {
+  return u
+    .replace(/^https?:\/\//, "")
+    .replace(/[^a-z0-9._-]/gi, "_")
+    .slice(-160);
+}
+
+async function downloadAssets(page, assetsDir) {
+  await fs.mkdir(assetsDir, { recursive: true });
+
+  const urls = await page.evaluate(() => {
+    const out = new Set();
+    document.querySelectorAll("img[src]").forEach((img) => {
+      if (img.src) out.add(img.src);
+    });
+    document.querySelectorAll("link[rel~='icon'][href]").forEach((l) => {
+      if (l.href) out.add(l.href);
+    });
+    // Font URLs from loaded @font-face resources.
+    for (const sheet of Array.from(document.styleSheets)) {
+      try {
+        for (const rule of Array.from(sheet.cssRules || [])) {
+          if (rule.constructor.name === "CSSFontFaceRule") {
+            const src = rule.style?.getPropertyValue("src");
+            if (src) {
+              const matches = src.match(/url\(["']?([^"')]+)["']?\)/g) || [];
+              for (const u of matches) {
+                const cleaned = u.replace(/^url\(["']?|["']?\)$/g, "");
+                if (cleaned) {
+                  try {
+                    out.add(new URL(cleaned, sheet.href || location.href).href);
+                  } catch {
+                    /* ignore malformed */
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        /* cross-origin stylesheet — cssRules throws; skip it */
+      }
+    }
+    return Array.from(out);
+  });
+
+  const saved = [];
+  for (const u of urls.slice(0, MAX_ASSETS)) {
+    try {
+      const r = await fetch(u);
+      if (!r.ok) continue;
+      const buf = Buffer.from(await r.arrayBuffer());
+      const safe = safeFilename(u);
+      if (!safe) continue;
+      await fs.writeFile(path.join(assetsDir, safe), buf);
+      saved.push({ url: u, saved_as: safe });
+    } catch (err) {
+      log("asset download failed:", u, err?.message || String(err));
+    }
+  }
+  return saved;
+}
+
 async function main() {
-  const { url, screenshot } = parseArgs(process.argv);
+  const { url, screenshot, assetsDir } = parseArgs(process.argv);
   if (!url) {
-    console.error("usage: url_analyzer.mjs <url> [--screenshot=<path>]");
+    console.error("usage: url_analyzer.mjs <url> [--screenshot=<path>] [--assets-dir=<dir>]");
     process.exit(2);
   }
 
@@ -140,11 +220,21 @@ async function main() {
       screenshotPath = screenshot;
     }
 
+    let assets = [];
+    if (assetsDir) {
+      try {
+        assets = await downloadAssets(page, assetsDir);
+      } catch (err) {
+        log("asset pipeline failed:", err?.message || String(err));
+      }
+    }
+
     const result = {
       url,
       status,
       ...extracted,
       screenshotPath,
+      assets,
     };
     // Single JSON line on stdout — easy to parse.
     process.stdout.write(`${JSON.stringify(result)}\n`);

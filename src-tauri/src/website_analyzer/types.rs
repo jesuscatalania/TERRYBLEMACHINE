@@ -35,6 +35,19 @@ pub struct AnalysisResult {
         skip_serializing_if = "Option::is_none"
     )]
     pub screenshot_path: Option<PathBuf>,
+    /// Assets downloaded into the caller-supplied assets directory. Empty
+    /// when no `assets_dir` was provided to the analyzer. The filenames in
+    /// `saved_as` are relative to that directory.
+    #[serde(default)]
+    pub assets: Vec<AssetDownload>,
+}
+
+/// One downloaded asset — the original remote URL + the filename the sidecar
+/// wrote into the assets directory (relative to that directory).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AssetDownload {
+    pub url: String,
+    pub saved_as: String,
 }
 
 #[derive(Debug, Error)]
@@ -57,10 +70,15 @@ pub enum AnalyzerError {
 
 #[async_trait]
 pub trait UrlAnalyzer: Send + Sync {
-    /// Analyze `url` — with an optional target path for a page screenshot.
+    /// Analyze `url`.
+    ///
+    /// - `screenshot_path`: when set, the sidecar saves a page screenshot there.
+    /// - `assets_dir`:      when set, referenced images / icons / fonts are
+    ///                      downloaded into that directory.
     async fn analyze(
         &self,
         url: &str,
         screenshot_path: Option<&std::path::Path>,
+        assets_dir: Option<&std::path::Path>,
     ) -> Result<AnalysisResult, AnalyzerError>;
 }

@@ -2,6 +2,11 @@ import { invoke } from "@tauri-apps/api/core";
 
 // ─── Types mirror the Rust side ────────────────────────────────────────
 
+export interface AssetDownload {
+  url: string;
+  saved_as: string;
+}
+
 export interface AnalysisResult {
   url: string;
   status: number;
@@ -13,6 +18,7 @@ export interface AnalysisResult {
   customProperties: Record<string, string>;
   layout: string;
   screenshotPath?: string | null;
+  assets?: AssetDownload[];
 }
 
 export interface GeneratedFile {
@@ -46,9 +52,16 @@ export interface ExportRequest {
 
 // ─── Invoke wrappers ───────────────────────────────────────────────────
 
-export function analyzeUrl(url: string, screenshotPath?: string): Promise<AnalysisResult> {
+export function analyzeUrl(
+  url: string,
+  options: { screenshotPath?: string; projectPath?: string } = {},
+): Promise<AnalysisResult> {
   return invoke<AnalysisResult>("analyze_url", {
-    input: { url, screenshot_path: screenshotPath ?? null },
+    input: {
+      url,
+      screenshot_path: options.screenshotPath ?? null,
+      project_path: options.projectPath ?? null,
+    },
   });
 }
 

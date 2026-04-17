@@ -44,6 +44,10 @@ pub struct AnalyzeUrlInput {
     /// Optional screenshot target path (must be writable by the process).
     #[serde(default)]
     pub screenshot_path: Option<PathBuf>,
+    /// Optional project path. When provided, referenced assets
+    /// (images/icons/fonts) are downloaded into `<project_path>/assets`.
+    #[serde(default)]
+    pub project_path: Option<PathBuf>,
 }
 
 #[tauri::command]
@@ -51,9 +55,14 @@ pub async fn analyze_url(
     input: AnalyzeUrlInput,
     state: State<'_, WebsiteAnalyzerState>,
 ) -> Result<AnalysisResult, AnalyzerIpcError> {
+    let assets_dir = input.project_path.as_ref().map(|p| p.join("assets"));
     state
         .0
-        .analyze(&input.url, input.screenshot_path.as_deref())
+        .analyze(
+            &input.url,
+            input.screenshot_path.as_deref(),
+            assets_dir.as_deref(),
+        )
         .await
         .map_err(Into::into)
 }

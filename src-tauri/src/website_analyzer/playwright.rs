@@ -61,6 +61,7 @@ impl UrlAnalyzer for PlaywrightUrlAnalyzer {
         &self,
         url: &str,
         screenshot_path: Option<&Path>,
+        assets_dir: Option<&Path>,
     ) -> Result<AnalysisResult, AnalyzerError> {
         validate_url(url)?;
 
@@ -68,6 +69,9 @@ impl UrlAnalyzer for PlaywrightUrlAnalyzer {
         cmd.arg(&self.script_path).arg(url);
         if let Some(path) = screenshot_path {
             cmd.arg(format!("--screenshot={}", path.display()));
+        }
+        if let Some(dir) = assets_dir {
+            cmd.arg(format!("--assets-dir={}", dir.display()));
         }
         cmd.stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -150,6 +154,17 @@ mod tests {
         let r = parse_sidecar_output(raw).unwrap();
         assert_eq!(r.url, "https://x");
         assert_eq!(r.layout, "flex");
+        // `assets` defaults to empty when the sidecar omitted it (backward compat).
+        assert!(r.assets.is_empty());
+    }
+
+    #[test]
+    fn parse_sidecar_output_reads_assets_array() {
+        let raw = r#"{"url":"https://x","status":200,"title":"X","colors":[],"fonts":[],"spacing":[],"customProperties":{},"layout":"flex","assets":[{"url":"https://x/a.png","saved_as":"x_a.png"}]}"#;
+        let r = parse_sidecar_output(raw).unwrap();
+        assert_eq!(r.assets.len(), 1);
+        assert_eq!(r.assets[0].url, "https://x/a.png");
+        assert_eq!(r.assets[0].saved_as, "x_a.png");
     }
 
     #[test]

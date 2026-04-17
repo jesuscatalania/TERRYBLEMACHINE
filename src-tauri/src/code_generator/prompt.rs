@@ -122,6 +122,7 @@ mod tests {
             custom_properties: HashMap::new(),
             layout: "grid".into(),
             screenshot_path: None,
+            assets: Vec::new(),
         });
         let p = build_prompt(&i, None);
         assert!(p.contains("Reference URL: https://stripe.com"));

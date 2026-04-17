@@ -14,4 +14,4 @@ mod types;
 
 pub use playwright::PlaywrightUrlAnalyzer;
 pub use stub::StubUrlAnalyzer;
-pub use types::{AnalysisResult, AnalyzerError, UrlAnalyzer};
+pub use types::{AnalysisResult, AnalyzerError, AssetDownload, UrlAnalyzer};
