@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Header } from "@/components/shell/Header";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { StatusBar } from "@/components/shell/StatusBar";
+import { useAppStore } from "@/stores/appStore";
 import { useProjectStore } from "@/stores/projectStore";
 
 export interface ShellProps {
@@ -14,9 +15,14 @@ export interface ShellProps {
 
 export function Shell({ children, onNew, onGenerate, onOpenSettings, renderProgress }: ShellProps) {
   const currentProject = useProjectStore((s) => s.currentProject);
+  const sidebarOpen = useAppStore((s) => s.sidebarOpen);
+  const gridCols = sidebarOpen ? "grid-cols-[15rem_1fr]" : "grid-cols-[3.5rem_1fr]";
 
   return (
-    <div className="grid h-screen w-screen grid-cols-[15rem_1fr] grid-rows-[3rem_1fr_1.75rem] bg-neutral-dark-900 text-neutral-dark-100">
+    <div
+      data-testid="shell-grid"
+      className={`grid h-screen w-screen ${gridCols} grid-rows-[3rem_1fr_1.75rem] bg-neutral-dark-900 text-neutral-dark-100`}
+    >
       <div className="row-span-3 row-start-1">
         <Sidebar />
       </div>

@@ -30,4 +30,17 @@ describe("Shell", () => {
     renderShell(<div data-testid="child" />);
     expect(screen.getByRole("main")).toContainElement(screen.getByTestId("child"));
   });
+
+  it("uses the expanded grid when sidebarOpen is true", () => {
+    const { container } = renderShell(<div data-testid="content">content</div>);
+    const grid = container.querySelector("[data-testid='shell-grid']");
+    expect(grid?.className).toMatch(/grid-cols-\[15rem_1fr\]/);
+  });
+
+  it("uses the collapsed grid when sidebarOpen is false", () => {
+    useAppStore.setState({ sidebarOpen: false });
+    const { container } = renderShell(<div data-testid="content">content</div>);
+    const grid = container.querySelector("[data-testid='shell-grid']");
+    expect(grid?.className).toMatch(/grid-cols-\[3\.5rem_1fr\]/);
+  });
 });
