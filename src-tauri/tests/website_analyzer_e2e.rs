@@ -246,19 +246,50 @@ fn resolve_assets_dir_rejects_sibling_directory() {
     assert!(matches!(err, AnalyzerIpcError::InvalidRequest(_)));
 }
 
-/// A project_path that does not exist on disk must surface as
-/// `InvalidRequest` (canonicalize fails before we even get to the
-/// starts_with check).
+/// A fresh `project_path` under `projects_root` that hasn't been written to
+/// disk yet must be auto-created (`mkdir -p` is idempotent and safe because
+/// the lexical `starts_with` gate runs before the mkdir). This unblocks the
+/// "New Project" flow where the frontend may call `analyze_url` before the
+/// project directory exists on disk.
 #[test]
-fn resolve_assets_dir_rejects_missing_path() {
+fn resolve_assets_dir_creates_missing_project_under_root() {
     let root = tempfile::tempdir().unwrap();
-    let missing = root.path().join("nope");
+    let fresh = root.path().join("fresh-project");
+    assert!(!fresh.exists(), "precondition: path does not exist yet");
 
-    let err = resolve_assets_dir(&missing, root.path()).expect_err("missing path must error");
+    let assets = resolve_assets_dir(&fresh, root.path())
+        .expect("fresh path under root must be auto-created");
+
+    assert!(fresh.is_dir(), "project directory should have been created");
+    let canon_fresh = std::fs::canonicalize(&fresh).unwrap();
+    assert_eq!(assets, canon_fresh.join("assets"));
+}
+
+/// A `project_path` whose lexical prefix is *not* the projects root must be
+/// rejected BEFORE the `create_dir_all` call — otherwise we'd create
+/// directories anywhere on the filesystem (e.g. `/etc/foo`). This is the
+/// defense-in-depth pairing to the canonical symlink check below.
+#[test]
+fn resolve_assets_dir_rejects_lexical_escape_before_mkdir() {
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    // A path rooted elsewhere that does NOT lexically start with `root`.
+    let evil = outside.path().join("would-be-created");
+    assert!(!evil.exists(), "precondition: evil path must not exist");
+
+    let err = resolve_assets_dir(&evil, root.path())
+        .expect_err("lexical escape must be denied before mkdir");
     match err {
         AnalyzerIpcError::InvalidRequest(msg) => {
-            assert!(msg.contains("project_path"), "unexpected message: {msg}");
+            assert!(
+                msg.contains("must be under projects_root"),
+                "unexpected message: {msg}"
+            );
         }
         other => panic!("expected InvalidRequest, got {other:?}"),
     }
+    assert!(
+        !evil.exists(),
+        "evil path MUST NOT have been created by resolve_assets_dir"
+    );
 }

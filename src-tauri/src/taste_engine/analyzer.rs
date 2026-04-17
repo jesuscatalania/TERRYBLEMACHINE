@@ -158,7 +158,11 @@ fn extract_hex_colors(text: &str) -> Vec<String> {
 /// Claude Vision calls.
 fn deterministic_id(path: &Path, mime: &str, prompt: &str) -> String {
     let mut h = Sha256::new();
-    h.update(path.to_string_lossy().as_bytes());
+    // Hash the OS-native byte representation rather than `to_string_lossy()`
+    // so two different non-UTF-8 paths cannot collide to the same id.
+    // `as_encoded_bytes` is stable since Rust 1.74 and preserves the exact
+    // OS-level bytes on all platforms.
+    h.update(path.as_os_str().as_encoded_bytes());
     h.update(mime.as_bytes());
     h.update(prompt.as_bytes());
     format!("vision-{:x}", h.finalize())
