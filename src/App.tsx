@@ -11,6 +11,7 @@ import { useUndoRedo } from "@/hooks/useUndoRedo";
 import { createProject as createProjectCommand, type NewProjectInput } from "@/lib/projectCommands";
 import { DesignSystemPage } from "@/pages/DesignSystem";
 import { ModulePlaceholder } from "@/pages/ModulePlaceholder";
+import { WebsiteBuilderPage } from "@/pages/WebsiteBuilder";
 import { useAppStore } from "@/stores/appStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useUiStore } from "@/stores/uiStore";
@@ -31,7 +32,7 @@ function AnimatedRoutes() {
       >
         <Routes location={location}>
           <Route path="/" element={<Navigate to="/website" replace />} />
-          <Route path="/website" element={<ModulePlaceholder moduleId="website" />} />
+          <Route path="/website" element={<WebsiteBuilderPage />} />
           <Route path="/graphic2d" element={<ModulePlaceholder moduleId="graphic2d" />} />
           <Route path="/graphic3d" element={<ModulePlaceholder moduleId="graphic3d" />} />
           <Route path="/video" element={<ModulePlaceholder moduleId="video" />} />

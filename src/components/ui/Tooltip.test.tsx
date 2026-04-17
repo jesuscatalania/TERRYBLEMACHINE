@@ -35,9 +35,13 @@ describe("Tooltip", () => {
     await user.hover(trigger);
     await screen.findByRole("tooltip");
     await user.unhover(trigger);
-    await waitForElementToBeRemoved(() => screen.queryByRole("tooltip"), {
-      timeout: 3000,
-    });
+    // Under parallel load the tooltip may already be gone; if it's still
+    // exiting, wait for it to unmount.
+    if (screen.queryByRole("tooltip")) {
+      await waitForElementToBeRemoved(() => screen.queryByRole("tooltip"), {
+        timeout: 3000,
+      });
+    }
     expect(screen.queryByRole("tooltip")).toBeNull();
   });
 });

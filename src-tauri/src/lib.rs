@@ -1,5 +1,7 @@
 pub mod ai_router;
 pub mod api_clients;
+pub mod code_generator;
+pub mod exporter;
 pub mod keychain;
 pub mod projects;
 pub mod taste_engine;
@@ -12,6 +14,8 @@ use tauri::Manager;
 
 use ai_router::commands::AiRouterState;
 use ai_router::{AiRouter, DefaultRoutingStrategy, PriorityQueue, RetryPolicy};
+use code_generator::commands::CodeGeneratorState;
+use code_generator::{CodeGenerator, StubCodeGenerator};
 use keychain::commands::KeyStoreState;
 use projects::commands::{resolve_default_root, ProjectStoreState};
 use taste_engine::commands::TasteEngineState;
@@ -64,6 +68,12 @@ pub fn run() {
                 .join("url_analyzer.mjs");
             let analyzer: Arc<dyn UrlAnalyzer> = Arc::new(PlaywrightUrlAnalyzer::new(script_path));
             app.manage(WebsiteAnalyzerState::new(analyzer));
+
+            // Code generator — default to the deterministic stub until the
+            // frontend wires a real Claude key through. Swapping in
+            // ClaudeCodeGenerator requires an AiClient + keychain lookup.
+            let generator: Arc<dyn CodeGenerator> = Arc::new(StubCodeGenerator::new());
+            app.manage(CodeGeneratorState::new(generator));
             Ok(())
         })
         .manage(KeyStoreState::new(keystore))
@@ -90,6 +100,8 @@ pub fn run() {
             taste_engine::commands::enrich_taste_prompt,
             taste_engine::commands::get_negative_prompt,
             website_analyzer::commands::analyze_url,
+            code_generator::commands::generate_website,
+            exporter::commands::export_website,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

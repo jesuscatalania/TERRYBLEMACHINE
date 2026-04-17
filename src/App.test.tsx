@@ -1,8 +1,21 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "@/App";
 import { useAppStore } from "@/stores/appStore";
+
+// Monaco pulls in a Web Worker + language services that don't initialise in
+// jsdom. Stub the component to a plain textarea so we can still exercise the
+// builder page end-to-end in unit tests.
+vi.mock("@monaco-editor/react", () => ({
+  default: (props: { value?: string; onChange?: (v: string) => void }) => (
+    <textarea
+      data-testid="monaco-stub"
+      defaultValue={props.value ?? ""}
+      onChange={(e) => props.onChange?.(e.currentTarget.value)}
+    />
+  ),
+}));
 
 function renderAt(path: string) {
   return render(
@@ -17,14 +30,13 @@ describe("App", () => {
     useAppStore.setState({ theme: "dark", sidebarOpen: true, activeModule: "website" });
   });
 
-  it("redirects / → /website and renders the Website placeholder", async () => {
+  it("redirects / → /website and renders the Website builder", async () => {
     renderAt("/");
-    expect(await screen.findByText(/Coming soon — Website/)).toBeInTheDocument();
+    expect(await screen.findByText(/WEBSITE BUILDER/)).toBeInTheDocument();
     expect(useAppStore.getState().activeModule).toBe("website");
   });
 
   it.each([
-    ["/website", "Website", "website"],
     ["/graphic2d", "Graphic 2D", "graphic2d"],
     ["/graphic3d", "Pseudo-3D", "graphic3d"],
     ["/video", "Video", "video"],
@@ -35,14 +47,20 @@ describe("App", () => {
     expect(useAppStore.getState().activeModule).toBe(id);
   });
 
+  it("renders the Website builder at /website", () => {
+    renderAt("/website");
+    expect(screen.getByText(/WEBSITE BUILDER/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Describe the site/i)).toBeInTheDocument();
+  });
+
   it("renders the design system page at /design-system", () => {
     renderAt("/design-system");
     expect(screen.getByRole("heading", { name: /^design system$/i })).toBeInTheDocument();
   });
 
-  it("unknown routes fall back to /website", async () => {
+  it("unknown routes fall back to /website (builder)", async () => {
     renderAt("/nonexistent");
-    expect(await screen.findByText(/Coming soon — Website/)).toBeInTheDocument();
+    expect(await screen.findByText(/WEBSITE BUILDER/)).toBeInTheDocument();
   });
 
   it("renders the shell on every route", () => {
