@@ -137,7 +137,7 @@ fn default_complexity() -> Complexity {
 }
 
 /// A successful generative response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AiResponse {
     pub request_id: String,
     pub model: Model,

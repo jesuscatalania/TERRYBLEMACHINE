@@ -9,12 +9,16 @@
 //! The actual provider clients live in `api_clients/` (built in Schritt 2.2).
 //! For Schritt 2.1 we depend only on the [`AiClient`](models::AiClient) trait.
 
+mod cache;
 pub mod commands;
 mod errors;
 mod models;
 mod queue;
 mod router;
 
+pub use cache::{
+    CacheConfig, CacheEntry, CacheStats, SemanticCache, DEFAULT_MAX_ENTRIES, DEFAULT_TTL_SECONDS,
+};
 pub use errors::{ProviderError, RouterError};
 pub use models::{
     AiClient, AiRequest, AiResponse, Complexity, Model, Priority, Provider, ProviderUsage, TaskKind,
@@ -37,6 +41,7 @@ pub struct AiRouter {
     clients: HashMap<Provider, Arc<dyn AiClient>>,
     retry: RetryPolicy,
     queue: Arc<PriorityQueue>,
+    cache: Arc<SemanticCache>,
 }
 
 impl AiRouter {
@@ -46,11 +51,28 @@ impl AiRouter {
         retry: RetryPolicy,
         queue: Arc<PriorityQueue>,
     ) -> Self {
+        Self::with_cache(
+            strategy,
+            clients,
+            retry,
+            queue,
+            Arc::new(SemanticCache::new(CacheConfig::in_memory())),
+        )
+    }
+
+    pub fn with_cache(
+        strategy: Arc<dyn RoutingStrategy>,
+        clients: HashMap<Provider, Arc<dyn AiClient>>,
+        retry: RetryPolicy,
+        queue: Arc<PriorityQueue>,
+        cache: Arc<SemanticCache>,
+    ) -> Self {
         Self {
             strategy,
             clients,
             retry,
             queue,
+            cache,
         }
     }
 
@@ -58,14 +80,29 @@ impl AiRouter {
         &self.queue
     }
 
+    pub fn cache(&self) -> &Arc<SemanticCache> {
+        &self.cache
+    }
+
     /// Execute a request through the router pipeline.
     ///
-    /// 1. The [`RoutingStrategy`] picks a primary model + ordered fallbacks.
-    /// 2. Each model is tried with [`RetryPolicy`]-guarded retries.
-    /// 3. On success, the first successful [`AiResponse`] is returned.
-    /// 4. If every option exhausts its retries, [`RouterError::AllFallbacksFailed`]
+    /// 1. Check the [`SemanticCache`]. On hit, return immediately.
+    /// 2. The [`RoutingStrategy`] picks a primary model + ordered fallbacks.
+    /// 3. Each model is tried with [`RetryPolicy`]-guarded retries.
+    /// 4. On success, the first successful [`AiResponse`] is returned
+    ///    **and** inserted into the cache for future hits.
+    /// 5. If every option exhausts its retries, [`RouterError::AllFallbacksFailed`]
     ///    is returned carrying the last provider error.
     pub async fn route(&self, request: AiRequest) -> Result<AiResponse, RouterError> {
+        let cache_key = SemanticCache::key(
+            &request.prompt,
+            self.strategy.select(&request).primary,
+            &request.payload,
+        );
+        if let Some(cached) = self.cache.get(&cache_key).await {
+            return Ok(cached);
+        }
+
         let decision = self.strategy.select(&request);
 
         self.queue.begin(request.id.clone(), request.priority).await;
@@ -73,6 +110,10 @@ impl AiRouter {
         let result = self.execute_decision(&decision, &request).await;
 
         self.queue.finish(&request.id).await;
+
+        if let Ok(ref response) = result {
+            self.cache.put(cache_key, response.clone()).await;
+        }
         result
     }
 
@@ -304,5 +345,39 @@ mod tests {
             RouterError::Provider(ProviderError::Permanent(_))
         ));
         assert_eq!(client.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn route_caches_successful_responses_and_serves_subsequent_calls() {
+        let client = Arc::new(MockClient::new(Provider::Claude, 0, false));
+        let router = router_with(vec![(
+            Provider::Claude,
+            client.clone() as Arc<dyn AiClient>,
+        )]);
+
+        let first = router.route(text_request()).await.unwrap();
+        assert!(!first.cached);
+
+        let second = router.route(text_request()).await.unwrap();
+        assert!(second.cached);
+
+        // Client was hit only once — second call came from cache.
+        assert_eq!(client.calls.load(Ordering::SeqCst), 1);
+
+        let stats = router.cache().stats().await;
+        assert_eq!(stats.hits, 1);
+        assert_eq!(stats.misses, 1);
+        assert_eq!(stats.size, 1);
+    }
+
+    #[tokio::test]
+    async fn route_does_not_cache_when_all_attempts_fail() {
+        let client = Arc::new(MockClient::new(Provider::Claude, 99, false));
+        let router = router_with(vec![(
+            Provider::Claude,
+            client.clone() as Arc<dyn AiClient>,
+        )]);
+        let _ = router.route(text_request()).await;
+        assert_eq!(router.cache().len().await, 0);
     }
 }

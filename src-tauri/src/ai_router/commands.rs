@@ -5,7 +5,9 @@ use std::sync::Arc;
 use serde::Serialize;
 use tauri::State;
 
-use super::{AiRequest, AiResponse, AiRouter, Provider, ProviderError, QueueStatus, RouterError};
+use super::{
+    AiRequest, AiResponse, AiRouter, CacheStats, Provider, ProviderError, QueueStatus, RouterError,
+};
 
 pub struct AiRouterState(pub Arc<AiRouter>);
 
@@ -59,4 +61,9 @@ pub async fn route_request(
 #[tauri::command]
 pub async fn get_queue_status(state: State<'_, AiRouterState>) -> Result<QueueStatus, ()> {
     Ok(state.0.queue().status().await)
+}
+
+#[tauri::command]
+pub async fn get_cache_stats(state: State<'_, AiRouterState>) -> Result<CacheStats, ()> {
+    Ok(state.0.cache().stats().await)
 }
