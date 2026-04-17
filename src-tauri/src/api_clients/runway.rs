@@ -96,10 +96,19 @@ impl RunwayClient {
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
-        let body = json!({
+        let mut body = json!({
             "promptText": request.prompt,
             "seed": seed,
         });
+
+        // Forward Motion Brush payload if the caller supplied one. Runway's
+        // image_to_video endpoint accepts a top-level `motion_brush` object
+        // (e.g. `{ "strokes": [...] }`).
+        if let Some(motion_brush) = request.payload.get("motion_brush") {
+            body.as_object_mut()
+                .expect("body is a JSON object")
+                .insert("motion_brush".into(), motion_brush.clone());
+        }
 
         let url = format!("{}/v1/image_to_video", self.base_url);
         let resp = self
@@ -180,7 +189,7 @@ mod tests {
     use super::*;
     use crate::ai_router::{Complexity, Priority, TaskKind};
     use crate::keychain::InMemoryStore;
-    use wiremock::matchers::{header, method, path};
+    use wiremock::matchers::{body_partial_json, header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn key_store_with_key() -> Arc<dyn KeyStore> {
@@ -300,5 +309,40 @@ mod tests {
         let client = RunwayClient::for_test(key_store_with_key(), "http://localhost".to_string());
         let usage = client.get_usage().await.unwrap();
         assert!(usage.notes.is_some());
+    }
+
+    #[tokio::test]
+    async fn motion_brush_strokes_forwarded() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/image_to_video"))
+            .and(body_partial_json(json!({
+                "motion_brush": { "strokes": [{"x": 10, "y": 20, "dx": 5, "dy": 0}] }
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "r1",
+                "status": "succeeded",
+                "output": ["https://out/v.mp4"]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = RunwayClient::for_test(key_store_with_key(), server.uri());
+        let req = AiRequest {
+            id: "runway-mb-1".into(),
+            task: TaskKind::ImageToVideo,
+            priority: Priority::Normal,
+            complexity: Complexity::Medium,
+            prompt: "a panning shot".into(),
+            payload: json!({
+                "motion_brush": { "strokes": [{"x": 10, "y": 20, "dx": 5, "dy": 0}] }
+            }),
+        };
+        let resp = client.execute(Model::RunwayGen3, &req).await.unwrap();
+        assert_eq!(
+            resp.output.get("job_id").and_then(|v| v.as_str()),
+            Some("r1")
+        );
     }
 }

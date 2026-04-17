@@ -16,7 +16,7 @@ use serde_json::json;
 
 use super::common::{get_api_key, map_http_error, map_reqwest_error, RateLimiter};
 use crate::ai_router::{
-    AiClient, AiRequest, AiResponse, Model, Provider, ProviderError, ProviderUsage,
+    AiClient, AiRequest, AiResponse, Model, Provider, ProviderError, ProviderUsage, TaskKind,
 };
 use crate::keychain::KeyStore;
 
@@ -97,13 +97,38 @@ impl KlingClient {
             .map(|v| v as u32)
             .unwrap_or(DEFAULT_DURATION_SEC);
 
-        let body = json!({
-            "model_name": slug,
-            "prompt": request.prompt,
-            "duration": duration,
-        });
+        let (url, body) = match request.task {
+            TaskKind::TextToVideo => {
+                let body = json!({
+                    "model_name": slug,
+                    "prompt": request.prompt,
+                    "duration": duration,
+                });
+                let url = format!("{}/v1/videos/text2video", self.base_url);
+                (url, body)
+            }
+            TaskKind::ImageToVideo => {
+                let image_url = request
+                    .payload
+                    .get("image_url")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        ProviderError::Permanent("kling image2video: image_url required".into())
+                    })?;
+                let body = json!({
+                    "model_name": slug,
+                    "prompt": request.prompt,
+                    "image_url": image_url,
+                    "duration": duration,
+                });
+                let url = format!("{}/v1/videos/image2video", self.base_url);
+                (url, body)
+            }
+            _ => {
+                return Err(ProviderError::Permanent("kling: unsupported task".into()));
+            }
+        };
 
-        let url = format!("{}/v1/videos/text2video", self.base_url);
         let resp = self
             .http
             .post(&url)
@@ -122,13 +147,21 @@ impl KlingClient {
 
         let parsed: Text2VideoResponse = resp.json().await.map_err(map_reqwest_error)?;
 
+        let mut output = json!({
+            "job_id": parsed.task_id,
+            "status": parsed.task_status,
+        });
+        if let Some(video_url) = parsed.video_url {
+            output
+                .as_object_mut()
+                .expect("output is object")
+                .insert("video_url".into(), json!(video_url));
+        }
+
         Ok(AiResponse {
             request_id: request.id.clone(),
             model,
-            output: json!({
-                "job_id": parsed.task_id,
-                "status": parsed.task_status,
-            }),
+            output,
             cost_cents: None,
             cached: false,
         })
@@ -139,8 +172,10 @@ impl KlingClient {
 struct Text2VideoResponse {
     #[serde(default)]
     task_id: String,
-    #[serde(default)]
+    #[serde(default, alias = "status")]
     task_status: String,
+    #[serde(default)]
+    video_url: Option<String>,
 }
 
 #[async_trait]
@@ -181,7 +216,7 @@ mod tests {
     use super::*;
     use crate::ai_router::{Complexity, Priority, TaskKind};
     use crate::keychain::InMemoryStore;
-    use wiremock::matchers::{header, method, path};
+    use wiremock::matchers::{body_partial_json, header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn key_store_with_key() -> Arc<dyn KeyStore> {
@@ -301,5 +336,71 @@ mod tests {
         let client = KlingClient::for_test(key_store_with_key(), "http://localhost".to_string());
         let usage = client.get_usage().await.unwrap();
         assert!(usage.notes.is_some());
+    }
+
+    #[tokio::test]
+    async fn image_to_video_hits_image2video_endpoint() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/videos/image2video"))
+            .and(body_partial_json(json!({
+                "image_url": "https://src/a.png",
+                "prompt": "cinematic"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "task_id": "t1",
+                "task_status": "succeeded",
+                "video_url": "https://out/v.mp4"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = KlingClient::for_test(key_store_with_key(), server.uri());
+        let req = AiRequest {
+            id: "kling-i2v-1".into(),
+            task: TaskKind::ImageToVideo,
+            priority: Priority::Normal,
+            complexity: Complexity::Medium,
+            prompt: "cinematic".into(),
+            payload: json!({ "image_url": "https://src/a.png" }),
+        };
+        let resp = client.execute(Model::Kling20, &req).await.unwrap();
+        assert_eq!(
+            resp.output.get("video_url").and_then(|v| v.as_str()),
+            Some("https://out/v.mp4")
+        );
+    }
+
+    #[tokio::test]
+    async fn image_to_video_requires_image_url() {
+        let server = MockServer::start().await;
+        let client = KlingClient::for_test(key_store_with_key(), server.uri());
+        let req = AiRequest {
+            id: "kling-i2v-2".into(),
+            task: TaskKind::ImageToVideo,
+            priority: Priority::Normal,
+            complexity: Complexity::Medium,
+            prompt: "x".into(),
+            payload: serde_json::Value::Null,
+        };
+        let err = client.execute(Model::Kling20, &req).await.unwrap_err();
+        assert!(matches!(err, ProviderError::Permanent(_)));
+    }
+
+    #[tokio::test]
+    async fn unsupported_task_is_permanent() {
+        let server = MockServer::start().await;
+        let client = KlingClient::for_test(key_store_with_key(), server.uri());
+        let req = AiRequest {
+            id: "kling-bad".into(),
+            task: TaskKind::ImageGeneration,
+            priority: Priority::Normal,
+            complexity: Complexity::Medium,
+            prompt: "x".into(),
+            payload: serde_json::Value::Null,
+        };
+        let err = client.execute(Model::Kling20, &req).await.unwrap_err();
+        assert!(matches!(err, ProviderError::Permanent(_)));
     }
 }

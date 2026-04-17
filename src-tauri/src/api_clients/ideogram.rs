@@ -84,9 +84,11 @@ impl IdeogramClient {
             .to_owned();
 
         let body = json!({
+            "model_version": "V_3",
             "image_request": {
                 "prompt": request.prompt,
                 "aspect_ratio": aspect_ratio,
+                "model_version": "V_3",
             }
         });
 
@@ -182,7 +184,7 @@ mod tests {
     use super::*;
     use crate::ai_router::{Complexity, Priority, TaskKind};
     use crate::keychain::InMemoryStore;
-    use wiremock::matchers::{header, method, path};
+    use wiremock::matchers::{body_partial_json, header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn key_store_with_key() -> Arc<dyn KeyStore> {
@@ -298,5 +300,29 @@ mod tests {
         assert!(!client.supports(Model::ShotstackMontage));
         assert!(!client.supports(Model::MeshyText3D));
         assert!(!client.supports(Model::MeshyImage3D));
+    }
+
+    #[tokio::test]
+    async fn v3_model_version_sent() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/generate"))
+            .and(body_partial_json(json!({ "model_version": "V_3" })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": [{ "url": "https://out/l.png" }]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = IdeogramClient::for_test(key_store_with_key(), server.uri());
+        let resp = client
+            .execute(Model::IdeogramV3, &request("logo"))
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.output.get("url").and_then(|v| v.as_str()),
+            Some("https://out/l.png")
+        );
     }
 }
