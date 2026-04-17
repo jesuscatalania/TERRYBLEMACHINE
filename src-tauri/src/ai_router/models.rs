@@ -144,7 +144,7 @@ pub struct AiResponse {
     pub output: serde_json::Value,
     /// Cost in cents (integer) when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cost_cents: Option<u32>,
+    pub cost_cents: Option<u64>,
     /// True when served from the router's cache (Schritt 2.3).
     #[serde(default)]
     pub cached: bool,

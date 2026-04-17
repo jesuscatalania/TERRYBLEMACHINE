@@ -6,7 +6,8 @@ use serde::Serialize;
 use tauri::State;
 
 use super::{
-    AiRequest, AiResponse, AiRouter, CacheStats, Provider, ProviderError, QueueStatus, RouterError,
+    AiRequest, AiResponse, AiRouter, BudgetLimits, BudgetStatus, CacheStats, Provider,
+    ProviderError, QueueStatus, RouterError,
 };
 
 pub struct AiRouterState(pub Arc<AiRouter>);
@@ -28,6 +29,7 @@ pub enum RouterIpcError {
     Auth(String),
     Permanent(String),
     AllFallbacksFailed(Option<String>),
+    BudgetExceeded(String),
 }
 
 impl From<RouterError> for RouterIpcError {
@@ -35,6 +37,7 @@ impl From<RouterError> for RouterIpcError {
         match value {
             RouterError::Provider(err) => provider_to_ipc(err),
             RouterError::AllFallbacksFailed { last } => Self::AllFallbacksFailed(last),
+            RouterError::BudgetExceeded(msg) => Self::BudgetExceeded(msg),
         }
     }
 }
@@ -66,4 +69,23 @@ pub async fn get_queue_status(state: State<'_, AiRouterState>) -> Result<QueueSt
 #[tauri::command]
 pub async fn get_cache_stats(state: State<'_, AiRouterState>) -> Result<CacheStats, ()> {
     Ok(state.0.cache().stats().await)
+}
+
+#[tauri::command]
+pub async fn get_budget_status(state: State<'_, AiRouterState>) -> Result<BudgetStatus, ()> {
+    Ok(state.0.budget().status().await)
+}
+
+#[tauri::command]
+pub async fn set_budget_limit(
+    limits: BudgetLimits,
+    state: State<'_, AiRouterState>,
+) -> Result<BudgetStatus, ()> {
+    state.0.budget().set_limits(limits).await;
+    Ok(state.0.budget().status().await)
+}
+
+#[tauri::command]
+pub async fn export_usage(state: State<'_, AiRouterState>) -> Result<String, ()> {
+    Ok(state.0.budget().export_csv().await)
 }

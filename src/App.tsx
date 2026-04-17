@@ -4,6 +4,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { NewProjectDialog } from "@/components/projects/NewProjectDialog";
 import { Shell } from "@/components/shell/Shell";
 import { Toaster } from "@/components/ui/Toast";
+import { useBudgetPoll } from "@/hooks/useBudgetPoll";
 import { useModuleRouteSync } from "@/hooks/useModuleRouteSync";
 import { useProjectsBoot } from "@/hooks/useProjectsBoot";
 import { useUndoRedo } from "@/hooks/useUndoRedo";
@@ -46,6 +47,7 @@ function AnimatedRoutes() {
 function App() {
   useProjectsBoot();
   useUndoRedo();
+  useBudgetPoll();
   const [newDialogOpen, setNewDialogOpen] = useState(false);
   const activeModule = useAppStore((s) => s.activeModule);
   const openProject = useProjectStore((s) => s.openProject);

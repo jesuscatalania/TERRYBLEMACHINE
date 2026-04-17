@@ -55,6 +55,9 @@ pub fn run() {
             ai_router::commands::route_request,
             ai_router::commands::get_queue_status,
             ai_router::commands::get_cache_stats,
+            ai_router::commands::get_budget_status,
+            ai_router::commands::set_budget_limit,
+            ai_router::commands::export_usage,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

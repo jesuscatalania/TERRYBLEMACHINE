@@ -9,6 +9,7 @@
 //! The actual provider clients live in `api_clients/` (built in Schritt 2.2).
 //! For Schritt 2.1 we depend only on the [`AiClient`](models::AiClient) trait.
 
+mod budget;
 mod cache;
 pub mod commands;
 mod errors;
@@ -16,6 +17,10 @@ mod models;
 mod queue;
 mod router;
 
+pub use budget::{
+    cost_cents_for, BudgetLimits, BudgetManager, BudgetState, BudgetStatus, UsageEntry,
+    DEFAULT_DAILY_LIMIT_CENTS, WARN_THRESHOLD,
+};
 pub use cache::{
     CacheConfig, CacheEntry, CacheStats, SemanticCache, DEFAULT_MAX_ENTRIES, DEFAULT_TTL_SECONDS,
 };
@@ -42,6 +47,7 @@ pub struct AiRouter {
     retry: RetryPolicy,
     queue: Arc<PriorityQueue>,
     cache: Arc<SemanticCache>,
+    budget: Arc<BudgetManager>,
 }
 
 impl AiRouter {
@@ -51,12 +57,13 @@ impl AiRouter {
         retry: RetryPolicy,
         queue: Arc<PriorityQueue>,
     ) -> Self {
-        Self::with_cache(
+        Self::with_all(
             strategy,
             clients,
             retry,
             queue,
             Arc::new(SemanticCache::new(CacheConfig::in_memory())),
+            Arc::new(BudgetManager::with_defaults()),
         )
     }
 
@@ -67,12 +74,31 @@ impl AiRouter {
         queue: Arc<PriorityQueue>,
         cache: Arc<SemanticCache>,
     ) -> Self {
+        Self::with_all(
+            strategy,
+            clients,
+            retry,
+            queue,
+            cache,
+            Arc::new(BudgetManager::with_defaults()),
+        )
+    }
+
+    pub fn with_all(
+        strategy: Arc<dyn RoutingStrategy>,
+        clients: HashMap<Provider, Arc<dyn AiClient>>,
+        retry: RetryPolicy,
+        queue: Arc<PriorityQueue>,
+        cache: Arc<SemanticCache>,
+        budget: Arc<BudgetManager>,
+    ) -> Self {
         Self {
             strategy,
             clients,
             retry,
             queue,
             cache,
+            budget,
         }
     }
 
@@ -82,6 +108,10 @@ impl AiRouter {
 
     pub fn cache(&self) -> &Arc<SemanticCache> {
         &self.cache
+    }
+
+    pub fn budget(&self) -> &Arc<BudgetManager> {
+        &self.budget
     }
 
     /// Execute a request through the router pipeline.
@@ -94,16 +124,20 @@ impl AiRouter {
     /// 5. If every option exhausts its retries, [`RouterError::AllFallbacksFailed`]
     ///    is returned carrying the last provider error.
     pub async fn route(&self, request: AiRequest) -> Result<AiResponse, RouterError> {
-        let cache_key = SemanticCache::key(
-            &request.prompt,
-            self.strategy.select(&request).primary,
-            &request.payload,
-        );
+        let decision = self.strategy.select(&request);
+
+        let cache_key = SemanticCache::key(&request.prompt, decision.primary, &request.payload);
         if let Some(cached) = self.cache.get(&cache_key).await {
             return Ok(cached);
         }
 
-        let decision = self.strategy.select(&request);
+        // Gate the call if the projected cost would push us over 100%.
+        let projected = cost_cents_for(decision.primary);
+        if self.budget.would_block(projected).await {
+            return Err(RouterError::BudgetExceeded(format!(
+                "projected cost {projected}¢ would exceed the daily limit"
+            )));
+        }
 
         self.queue.begin(request.id.clone(), request.priority).await;
 
@@ -113,6 +147,18 @@ impl AiRouter {
 
         if let Ok(ref response) = result {
             self.cache.put(cache_key, response.clone()).await;
+            let spent = response
+                .cost_cents
+                .unwrap_or_else(|| cost_cents_for(response.model));
+            self.budget
+                .record(UsageEntry {
+                    timestamp: chrono::Utc::now(),
+                    provider: response.model.provider(),
+                    model: Some(response.model),
+                    task: Some(request.task),
+                    cost_cents: spent,
+                })
+                .await;
         }
         result
     }
@@ -379,5 +425,63 @@ mod tests {
         )]);
         let _ = router.route(text_request()).await;
         assert_eq!(router.cache().len().await, 0);
+    }
+
+    #[tokio::test]
+    async fn route_blocks_when_budget_ceiling_hit() {
+        let client = Arc::new(MockClient::new(Provider::Fal, 0, false));
+        let router = router_with(vec![(Provider::Fal, client as Arc<dyn AiClient>)]);
+        // Force the daily budget to a ridiculously low ceiling the first
+        // projected call will already exceed.
+        router
+            .budget()
+            .set_limits(BudgetLimits {
+                daily_cents: Some(1),
+                session_cents: None,
+            })
+            .await;
+        // Also seed spent=1 so we're already at 100%.
+        router
+            .budget()
+            .record(UsageEntry {
+                timestamp: chrono::Utc::now(),
+                provider: Provider::Fal,
+                model: None,
+                task: None,
+                cost_cents: 1,
+            })
+            .await;
+
+        let err = router
+            .route(AiRequest {
+                id: "r1".into(),
+                task: TaskKind::ImageGeneration,
+                priority: Priority::Normal,
+                complexity: Complexity::Simple,
+                prompt: "blocked".into(),
+                payload: serde_json::Value::Null,
+            })
+            .await
+            .unwrap_err();
+        assert!(matches!(err, RouterError::BudgetExceeded(_)));
+    }
+
+    #[tokio::test]
+    async fn route_records_spend_on_success_using_response_cost() {
+        let client = Arc::new(MockClient::new(Provider::Fal, 0, false));
+        let router = router_with(vec![(Provider::Fal, client as Arc<dyn AiClient>)]);
+
+        let mut req = text_request();
+        req.task = TaskKind::ImageGeneration;
+        req.complexity = Complexity::Simple;
+        // MockClient returns cost_cents = Some(0); budget records 0 and
+        // then the fallback cost_cents_for kicks in via `unwrap_or`.
+        // The response carries Some(0), so recorded = 0. Ensure the entry
+        // is still recorded (so the CSV export sees the request).
+        let _ = router.route(req).await.unwrap();
+        let entries = router.budget().entries().await;
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].provider, Provider::Fal);
+        assert_eq!(entries[0].task, Some(TaskKind::ImageGeneration));
     }
 }

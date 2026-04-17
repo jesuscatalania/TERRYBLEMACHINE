@@ -16,6 +16,9 @@ pub enum RouterError {
         /// Display of the last provider error observed, for diagnostics.
         last: Option<String>,
     },
+
+    #[error("budget exceeded: {0}")]
+    BudgetExceeded(String),
 }
 
 /// Errors returned by provider clients. The router uses the variant tags to
