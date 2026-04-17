@@ -33,9 +33,10 @@ pub enum ExportFormat {
     NextJs,
 }
 
-/// Optional hosting provider config to emit alongside the scaffold. Both
-/// targets assume a Vite-style `dist/` build output and `pnpm build` as the
-/// command; downstream users can edit the config for their setup.
+/// Optional hosting provider config to emit alongside the scaffold. The
+/// emitted config is framework-aware: Vite+React uses `dist/`, Next.js uses
+/// `.next/` with the official Netlify plugin, and Raw publishes the archive
+/// root as static files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DeployTarget {
@@ -107,7 +108,7 @@ pub fn export_to_zip(req: &ExportRequest) -> Result<PathBuf, ExportError> {
     // sit at the archive root so a `vercel --prod` or Netlify drop-to-deploy
     // picks them up without further configuration.
     if let Some(target) = req.deploy {
-        let (path, content) = deploy_config(target);
+        let (path, content) = deploy_config(target, req.format);
         write_entry(&mut zip, Path::new(path), content, options)?;
     }
 
@@ -300,15 +301,31 @@ fn nextjs_scaffold() -> Vec<(&'static str, &'static str)> {
     ]
 }
 
-fn deploy_config(target: DeployTarget) -> (&'static str, &'static str) {
-    match target {
-        DeployTarget::Vercel => (
+fn deploy_config(target: DeployTarget, format: ExportFormat) -> (&'static str, &'static str) {
+    match (target, format) {
+        (DeployTarget::Vercel, ExportFormat::NextJs) => (
+            "vercel.json",
+            "{ \"framework\": \"nextjs\", \"buildCommand\": \"pnpm build\" }\n",
+        ),
+        (DeployTarget::Vercel, ExportFormat::React) => (
             "vercel.json",
             "{ \"framework\": \"vite\", \"buildCommand\": \"pnpm build\", \"outputDirectory\": \"dist\" }\n",
         ),
-        DeployTarget::Netlify => (
+        (DeployTarget::Vercel, ExportFormat::Raw) => (
+            "vercel.json",
+            "{ \"outputDirectory\": \".\" }\n",
+        ),
+        (DeployTarget::Netlify, ExportFormat::NextJs) => (
+            "netlify.toml",
+            "[build]\n  command = \"pnpm build\"\n  publish = \".next\"\n[[plugins]]\n  package = \"@netlify/plugin-nextjs\"\n",
+        ),
+        (DeployTarget::Netlify, ExportFormat::React) => (
             "netlify.toml",
             "[build]\n  command = \"pnpm build\"\n  publish = \"dist\"\n",
+        ),
+        (DeployTarget::Netlify, ExportFormat::Raw) => (
+            "netlify.toml",
+            "[build]\n  publish = \".\"\n",
         ),
     }
 }
@@ -418,6 +435,11 @@ mod tests {
 
         let main = read_entry(&path, "src/main.jsx");
         assert!(main.contains("createRoot"));
+
+        let css = read_entry(&path, "src/index.css");
+        assert!(css.contains("@tailwind base"));
+        assert!(css.contains("@tailwind components"));
+        assert!(css.contains("@tailwind utilities"));
     }
 
     #[test]
@@ -458,6 +480,11 @@ mod tests {
         let layout = read_entry(&path, "app/layout.tsx");
         assert!(layout.contains("RootLayout"));
         assert!(layout.contains("./globals.css"));
+
+        let css = read_entry(&path, "app/globals.css");
+        assert!(css.contains("@tailwind base"));
+        assert!(css.contains("@tailwind components"));
+        assert!(css.contains("@tailwind utilities"));
     }
 
     #[test]
@@ -465,7 +492,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let req = ExportRequest {
             project: sample_project(),
-            format: ExportFormat::Raw,
+            format: ExportFormat::React,
             destination: tmp.path().to_path_buf(),
             deploy: Some(DeployTarget::Vercel),
         };
@@ -494,6 +521,67 @@ mod tests {
         let cfg = read_entry(&path, "netlify.toml");
         assert!(cfg.contains("[build]"));
         assert!(cfg.contains("publish = \"dist\""));
+    }
+
+    #[test]
+    fn vercel_config_uses_nextjs_framework_for_nextjs_format() {
+        let tmp = TempDir::new().unwrap();
+        let req = ExportRequest {
+            project: sample_project(),
+            format: ExportFormat::NextJs,
+            destination: tmp.path().to_path_buf(),
+            deploy: Some(DeployTarget::Vercel),
+        };
+        let path = export_to_zip(&req).unwrap();
+        let cfg = read_entry(&path, "vercel.json");
+        assert!(cfg.contains("\"framework\": \"nextjs\""));
+        assert!(!cfg.contains("\"outputDirectory\": \"dist\""));
+    }
+
+    #[test]
+    fn netlify_config_publishes_dot_next_for_nextjs_format() {
+        let tmp = TempDir::new().unwrap();
+        let req = ExportRequest {
+            project: sample_project(),
+            format: ExportFormat::NextJs,
+            destination: tmp.path().to_path_buf(),
+            deploy: Some(DeployTarget::Netlify),
+        };
+        let path = export_to_zip(&req).unwrap();
+        let cfg = read_entry(&path, "netlify.toml");
+        assert!(cfg.contains("publish = \".next\""));
+        assert!(!cfg.contains("publish = \"dist\""));
+        assert!(cfg.contains("@netlify/plugin-nextjs"));
+    }
+
+    #[test]
+    fn vercel_config_for_raw_format_sets_output_directory_dot() {
+        let tmp = TempDir::new().unwrap();
+        let req = ExportRequest {
+            project: sample_project(),
+            format: ExportFormat::Raw,
+            destination: tmp.path().to_path_buf(),
+            deploy: Some(DeployTarget::Vercel),
+        };
+        let path = export_to_zip(&req).unwrap();
+        let cfg = read_entry(&path, "vercel.json");
+        assert!(cfg.contains("\"outputDirectory\": \".\""));
+        assert!(!cfg.contains("\"framework\""));
+    }
+
+    #[test]
+    fn netlify_config_for_raw_format_publishes_dot() {
+        let tmp = TempDir::new().unwrap();
+        let req = ExportRequest {
+            project: sample_project(),
+            format: ExportFormat::Raw,
+            destination: tmp.path().to_path_buf(),
+            deploy: Some(DeployTarget::Netlify),
+        };
+        let path = export_to_zip(&req).unwrap();
+        let cfg = read_entry(&path, "netlify.toml");
+        assert!(cfg.contains("publish = \".\""));
+        assert!(!cfg.contains("pnpm build"));
     }
 
     #[test]

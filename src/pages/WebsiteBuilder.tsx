@@ -266,11 +266,9 @@ export function WebsiteBuilderPage() {
         </div>
       </div>
 
-      <WebsiteExportDialog
-        open={exportOpen}
-        onClose={() => setExportOpen(false)}
-        onExport={handleExport}
-      />
+      {exportOpen ? (
+        <WebsiteExportDialog open onClose={() => setExportOpen(false)} onExport={handleExport} />
+      ) : null}
     </div>
   );
 }
