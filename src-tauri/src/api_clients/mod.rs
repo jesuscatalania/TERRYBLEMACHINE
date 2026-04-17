@@ -19,6 +19,7 @@ pub mod higgsfield;
 pub mod ideogram;
 pub mod kling;
 pub mod meshy;
+pub mod registry;
 pub mod replicate;
 pub mod runway;
 pub mod shotstack;

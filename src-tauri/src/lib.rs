@@ -8,7 +8,6 @@ pub mod projects;
 pub mod taste_engine;
 pub mod website_analyzer;
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use tauri::Manager;
@@ -35,12 +34,13 @@ fn greet(name: &str) -> String {
 pub fn run() {
     let keystore: Arc<dyn keychain::KeyStore> = Arc::from(keychain::default_store());
 
-    // No provider clients yet — they ship in Schritt 2.2.
-    // The router is already functional; any `route_request` call will return
-    // `NoClient` until 2.2 wires real implementations.
+    // All 9 provider clients are registered. Each resolves its API key from
+    // the keychain at execute time; missing keys surface as Auth errors and
+    // the router's fallback chain picks the next provider.
+    let clients = api_clients::registry::build_default_clients(keystore.clone());
     let ai_router = Arc::new(AiRouter::new(
         Arc::new(DefaultRoutingStrategy),
-        HashMap::new(),
+        clients,
         RetryPolicy::default_policy(),
         Arc::new(PriorityQueue::new()),
     ));
