@@ -50,6 +50,22 @@ export interface FabricCanvasHandle {
    * detect data-URL sources that fal.ai cannot ingest.
    */
   getFirstImageUrl: () => string | null;
+  /** Flip the given object horizontally. */
+  flipH: (id: string) => void;
+  /** Flip the given object vertically. */
+  flipV: (id: string) => void;
+  /** Resize the canvas. Does not rescale existing objects. */
+  setCanvasSize: (width: number, height: number) => void;
+  /** Crop the canvas to the current crop selection's bounding box. */
+  cropToSelection: () => void;
+  /** Enter marquee-select mode — drag to create a crop bounding rectangle. */
+  enterMarqueeSelect: () => void;
+  /** Enter lasso-select mode — free-hand draw to create a crop polygon (uses bounding box). */
+  enterLassoSelect: () => void;
+  /** Exit any selection mode. */
+  exitSelectionMode: () => void;
+  /** True if at least one crop selection exists on the canvas. */
+  hasCropSelection: () => boolean;
 }
 
 export interface FabricCanvasProps {
@@ -69,6 +85,11 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
     const canvasRef = useRef<fabric.Canvas | null>(null);
     const layersRef = useRef<FabricLayer[]>([]);
     const maskModeRef = useRef(false);
+    const selectionModeRef = useRef<"marquee" | "lasso" | null>(null);
+    const marqueeStateRef = useRef<{
+      start: { x: number; y: number } | null;
+      rect: fabric.Rect | null;
+    }>({ start: null, rect: null });
     const onLayersChangeRef = useRef(onLayersChange);
     const onSelectionChangeRef = useRef(onSelectionChange);
     const initialSizeRef = useRef({ width, height });
@@ -91,13 +112,78 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
       c.on("selection:cleared", () => onSelectionChangeRef.current?.(null));
 
       // Tag paths drawn while in mask mode so we can isolate / clear them.
+      // When in lasso-select mode, replace the freeform path with a bounding-box
+      // fabric.Rect tagged __cropSelection so cropToSelection can find it.
       c.on("path:created", (e: unknown) => {
         const path = (e as { path?: fabric.Object }).path;
-        if (maskModeRef.current && path) {
+        if (!path) return;
+        if (maskModeRef.current) {
           (path as unknown as { __mask: boolean }).__mask = true;
           path.selectable = false;
           path.evented = false;
+          return;
         }
+        if (selectionModeRef.current === "lasso") {
+          const bounds = path.getBoundingRect();
+          c.remove(path);
+          const rect = new fabric.Rect({
+            left: bounds.left,
+            top: bounds.top,
+            width: bounds.width,
+            height: bounds.height,
+            fill: "rgba(232,93,45,0.1)",
+            stroke: "rgba(232,93,45,0.6)",
+            strokeWidth: 1,
+            selectable: false,
+            evented: false,
+          });
+          (rect as unknown as { __cropSelection: boolean }).__cropSelection = true;
+          c.add(rect);
+          c.requestRenderAll();
+        }
+      });
+
+      // Marquee-select listeners: installed once, gated on selectionModeRef.
+      c.on("mouse:down", (opt: unknown) => {
+        if (selectionModeRef.current !== "marquee") return;
+        const e = (opt as { e: MouseEvent }).e;
+        const p = c.getScenePoint(e);
+        // Remove any previous crop selection so only one exists at a time.
+        clearCropSelections(c);
+        const rect = new fabric.Rect({
+          left: p.x,
+          top: p.y,
+          width: 0,
+          height: 0,
+          fill: "rgba(232,93,45,0.1)",
+          stroke: "rgba(232,93,45,0.6)",
+          strokeWidth: 1,
+          selectable: false,
+          evented: false,
+        });
+        (rect as unknown as { __cropSelection: boolean }).__cropSelection = true;
+        marqueeStateRef.current.start = p;
+        marqueeStateRef.current.rect = rect;
+        c.add(rect);
+      });
+      c.on("mouse:move", (opt: unknown) => {
+        if (selectionModeRef.current !== "marquee") return;
+        const { start, rect } = marqueeStateRef.current;
+        if (!start || !rect) return;
+        const e = (opt as { e: MouseEvent }).e;
+        const p = c.getScenePoint(e);
+        rect.set({
+          left: Math.min(start.x, p.x),
+          top: Math.min(start.y, p.y),
+          width: Math.abs(p.x - start.x),
+          height: Math.abs(p.y - start.y),
+        });
+        c.requestRenderAll();
+      });
+      c.on("mouse:up", () => {
+        if (selectionModeRef.current !== "marquee") return;
+        marqueeStateRef.current.start = null;
+        marqueeStateRef.current.rect = null;
       });
 
       return () => {
@@ -326,6 +412,104 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
           }
           return null;
         },
+        flipH(id) {
+          const c = canvasRef.current;
+          if (!c) return;
+          const obj = findById(c, id);
+          if (obj) {
+            obj.set({ flipX: !obj.flipX });
+            c.requestRenderAll();
+          }
+        },
+        flipV(id) {
+          const c = canvasRef.current;
+          if (!c) return;
+          const obj = findById(c, id);
+          if (obj) {
+            obj.set({ flipY: !obj.flipY });
+            c.requestRenderAll();
+          }
+        },
+        setCanvasSize(w, h) {
+          const c = canvasRef.current;
+          if (!c) return;
+          c.setDimensions({ width: w, height: h });
+          c.requestRenderAll();
+        },
+        cropToSelection() {
+          const c = canvasRef.current;
+          if (!c) return;
+          const sel = c
+            .getObjects()
+            .find((o) => (o as unknown as { __cropSelection?: boolean }).__cropSelection) as
+            | fabric.Rect
+            | undefined;
+          if (!sel) return;
+          const left = sel.left ?? 0;
+          const top = sel.top ?? 0;
+          const width = (sel.width ?? 0) * (sel.scaleX ?? 1);
+          const height = (sel.height ?? 0) * (sel.scaleY ?? 1);
+          if (width <= 0 || height <= 0) return;
+          // Translate every non-selection object to the new origin, then
+          // remove the crop marker and resize the canvas.
+          const toRemove: fabric.Object[] = [];
+          for (const o of c.getObjects()) {
+            if ((o as unknown as { __cropSelection?: boolean }).__cropSelection) {
+              toRemove.push(o);
+              continue;
+            }
+            o.set({
+              left: (o.left ?? 0) - left,
+              top: (o.top ?? 0) - top,
+            });
+            o.setCoords();
+          }
+          for (const o of toRemove) c.remove(o);
+          c.setDimensions({ width, height });
+          c.requestRenderAll();
+          refreshLayers();
+        },
+        enterMarqueeSelect() {
+          const c = canvasRef.current;
+          if (!c) return;
+          selectionModeRef.current = "marquee";
+          c.isDrawingMode = false;
+          c.selection = false;
+          c.defaultCursor = "crosshair";
+          c.discardActiveObject();
+          c.requestRenderAll();
+        },
+        enterLassoSelect() {
+          const c = canvasRef.current;
+          if (!c) return;
+          selectionModeRef.current = "lasso";
+          const brush = new fabric.PencilBrush(c);
+          brush.color = "rgba(232,93,45,0.6)";
+          brush.width = 2;
+          c.freeDrawingBrush = brush;
+          c.isDrawingMode = true;
+          c.selection = false;
+          c.defaultCursor = "crosshair";
+          c.discardActiveObject();
+          c.requestRenderAll();
+        },
+        exitSelectionMode() {
+          const c = canvasRef.current;
+          if (!c) return;
+          selectionModeRef.current = null;
+          c.isDrawingMode = false;
+          c.selection = true;
+          c.defaultCursor = "default";
+          marqueeStateRef.current.start = null;
+          marqueeStateRef.current.rect = null;
+        },
+        hasCropSelection() {
+          const c = canvasRef.current;
+          if (!c) return false;
+          return c
+            .getObjects()
+            .some((o) => (o as unknown as { __cropSelection?: boolean }).__cropSelection === true);
+        },
       }),
       [],
     );
@@ -383,6 +567,13 @@ function typeFor(o: fabric.Object): FabricLayer["type"] {
 
 function findById(c: fabric.Canvas, id: string): fabric.Object | null {
   return c.getObjects().find((o) => objId(o) === id) ?? null;
+}
+
+function clearCropSelections(c: fabric.Canvas): void {
+  const marked = c
+    .getObjects()
+    .filter((o) => (o as unknown as { __cropSelection?: boolean }).__cropSelection === true);
+  for (const o of marked) c.remove(o);
 }
 
 function filtersFor(

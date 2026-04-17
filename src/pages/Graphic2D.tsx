@@ -1,5 +1,5 @@
 import { Brush, Download, Image as ImageIcon, Plus, Sparkles, Type } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ExportDialog,
   type ExportFormat,
@@ -32,7 +32,19 @@ export function Graphic2DPage() {
   const [inpaintPromptOpen, setInpaintPromptOpen] = useState(false);
   const [inpaintPrompt, setInpaintPrompt] = useState("");
   const [inpaintBusy, setInpaintBusy] = useState(false);
+  const [selectionMode, setSelectionMode] = useState<"none" | "marquee" | "lasso">("none");
+  const [canvasW, setCanvasW] = useState(900);
+  const [canvasH, setCanvasH] = useState(600);
   const notify = useUiStore((s) => s.notify);
+
+  // Toggle selection modes on the canvas whenever the dropdown changes.
+  useEffect(() => {
+    const handle = canvasRef.current;
+    if (!handle) return;
+    if (selectionMode === "marquee") handle.enterMarqueeSelect();
+    else if (selectionMode === "lasso") handle.enterLassoSelect();
+    else handle.exitSelectionMode();
+  }, [selectionMode]);
 
   async function generate() {
     if (!prompt.trim()) return;
@@ -165,6 +177,29 @@ export function Graphic2DPage() {
       });
     } finally {
       setInpaintBusy(false);
+    }
+  }
+
+  function handleCrop() {
+    const handle = canvasRef.current;
+    if (!handle) return;
+    if (!handle.hasCropSelection()) {
+      notify({
+        kind: "warning",
+        message: "No crop selection",
+        detail: "Switch to Marquee or Lasso and draw a region first.",
+      });
+      return;
+    }
+    handle.cropToSelection();
+    handle.exitSelectionMode();
+    setSelectionMode("none");
+    // Reflect the new canvas dimensions in the Canvas inputs so the user
+    // sees the post-crop size immediately.
+    const c = handle.canvas();
+    if (c) {
+      setCanvasW(c.getWidth());
+      setCanvasH(c.getHeight());
     }
   }
 
@@ -319,6 +354,77 @@ export function Graphic2DPage() {
               className="w-full accent-accent-500"
               disabled={!selectedId}
             />
+          </div>
+
+          <div className="mt-2 flex flex-col gap-1">
+            <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
+              Transform
+            </span>
+            <div className="flex gap-1">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => selectedId && canvasRef.current?.flipH(selectedId)}
+                disabled={!selectedId}
+              >
+                Flip H
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => selectedId && canvasRef.current?.flipV(selectedId)}
+                disabled={!selectedId}
+              >
+                Flip V
+              </Button>
+            </div>
+          </div>
+
+          <div className="mt-2 flex flex-col gap-1">
+            <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
+              Selection
+            </span>
+            <Dropdown
+              value={selectionMode}
+              onChange={(v) => setSelectionMode(v as typeof selectionMode)}
+              options={[
+                { value: "none", label: "Off" },
+                { value: "marquee", label: "Marquee" },
+                { value: "lasso", label: "Lasso" },
+              ]}
+            />
+            <Button variant="secondary" size="sm" onClick={handleCrop}>
+              Crop to selection
+            </Button>
+          </div>
+
+          <div className="mt-2 flex flex-col gap-1">
+            <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
+              Canvas
+            </span>
+            <div className="flex gap-1">
+              <Input
+                type="number"
+                label="W"
+                id="canvas-w"
+                value={canvasW}
+                onValueChange={(v) => setCanvasW(Number(v))}
+              />
+              <Input
+                type="number"
+                label="H"
+                id="canvas-h"
+                value={canvasH}
+                onValueChange={(v) => setCanvasH(Number(v))}
+              />
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => canvasRef.current?.setCanvasSize(canvasW, canvasH)}
+            >
+              Resize
+            </Button>
           </div>
 
           <Button
