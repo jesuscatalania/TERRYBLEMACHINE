@@ -204,7 +204,7 @@ export function Graphic2DPage() {
     }
   }
 
-  const handleExport = useCallback((settings: ExportSettings) => {
+  const handleExport = useCallback(async (settings: ExportSettings) => {
     const handle = canvasRef.current;
     if (!handle) return;
     let dataUrl = "";
@@ -223,6 +223,15 @@ export function Graphic2DPage() {
         dataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
         break;
       }
+      case "pdf":
+        dataUrl = handle.toPdf();
+        break;
+      case "gif":
+        dataUrl = await handle.toGif({
+          frames: settings.frames,
+          delayMs: settings.delayMs,
+        });
+        break;
     }
     triggerDownload(dataUrl, `${settings.filename}.${extFor(settings.format)}`);
     setExportOpen(false);

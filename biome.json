@@ -12,7 +12,8 @@
       "!**/src-tauri/target",
       "!**/node_modules",
       "!**/coverage",
-      "!**/*.css"
+      "!**/*.css",
+      "!public/gif.worker.js"
     ]
   },
   "formatter": {

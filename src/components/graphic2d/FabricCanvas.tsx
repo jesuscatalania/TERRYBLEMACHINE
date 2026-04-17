@@ -1,4 +1,6 @@
 import * as fabric from "fabric";
+import GIF from "gif.js";
+import { jsPDF } from "jspdf";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
 export interface FabricLayer {
@@ -30,6 +32,10 @@ export interface FabricCanvasHandle {
   toJpeg: (quality: number) => string;
   toWebp: (quality: number) => string;
   toSvg: () => string;
+  /** Export current canvas as a single-page PDF data URL. */
+  toPdf: () => string;
+  /** Export canvas as GIF data URL. Static when frames<=1, animated otherwise. */
+  toGif: (options?: { frames?: number; delayMs?: number }) => Promise<string>;
   /** Enter free-drawing mode — pointer strokes become mask paths. */
   enterMaskMode: () => void;
   /** Exit free-drawing mode. Does not remove existing mask strokes. */
@@ -348,6 +354,46 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
         },
         toSvg() {
           return canvasRef.current?.toSVG() ?? "";
+        },
+        toPdf() {
+          const c = canvasRef.current;
+          if (!c) return "";
+          const pngUrl = c.toDataURL({ format: "png", multiplier: 1 });
+          const w = c.getWidth();
+          const h = c.getHeight();
+          const pdf = new jsPDF({
+            orientation: w >= h ? "landscape" : "portrait",
+            unit: "px",
+            format: [w, h],
+          });
+          pdf.addImage(pngUrl, "PNG", 0, 0, w, h);
+          return pdf.output("dataurlstring");
+        },
+        toGif({ frames = 1, delayMs = 100 } = {}) {
+          return new Promise<string>((resolve) => {
+            const c = canvasRef.current;
+            if (!c) {
+              resolve("");
+              return;
+            }
+            const gif = new GIF({
+              workers: 2,
+              quality: 10,
+              width: c.getWidth(),
+              height: c.getHeight(),
+              workerScript: "/gif.worker.js",
+            });
+            const count = Math.max(1, frames);
+            for (let i = 0; i < count; i++) {
+              gif.addFrame(c.lowerCanvasEl, { copy: true, delay: delayMs });
+            }
+            gif.on("finished", (blob: Blob) => {
+              const r = new FileReader();
+              r.onload = () => resolve(r.result as string);
+              r.readAsDataURL(blob);
+            });
+            gif.render();
+          });
         },
         enterMaskMode() {
           const c = canvasRef.current;
