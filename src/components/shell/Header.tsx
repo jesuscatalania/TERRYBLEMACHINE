@@ -1,4 +1,5 @@
 import { Settings } from "lucide-react";
+import { RecentsMenu } from "@/components/projects/RecentsMenu";
 import { Breadcrumbs } from "@/components/shell/Breadcrumbs";
 import { Button } from "@/components/shell/Button";
 import { getModule } from "@/components/shell/modules";
@@ -26,6 +27,7 @@ export function Header({
       <Breadcrumbs parts={parts} />
 
       <div className="flex items-center gap-2.5">
+        <RecentsMenu />
         <Button onClick={onNew}>New</Button>
         <Button variant="primary" onClick={onGenerate}>
           Generate
