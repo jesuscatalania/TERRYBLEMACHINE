@@ -2,6 +2,7 @@ pub mod ai_router;
 pub mod api_clients;
 pub mod code_generator;
 pub mod exporter;
+pub mod image_pipeline;
 pub mod keychain;
 pub mod projects;
 pub mod taste_engine;
@@ -16,6 +17,8 @@ use ai_router::commands::AiRouterState;
 use ai_router::{AiRouter, DefaultRoutingStrategy, PriorityQueue, RetryPolicy};
 use code_generator::commands::CodeGeneratorState;
 use code_generator::{CodeGenerator, StubCodeGenerator};
+use image_pipeline::commands::ImagePipelineState;
+use image_pipeline::{ImagePipeline, StubImagePipeline};
 use keychain::commands::KeyStoreState;
 use projects::commands::{resolve_default_root, ProjectStoreState};
 use taste_engine::commands::TasteEngineState;
@@ -74,6 +77,10 @@ pub fn run() {
             // ClaudeCodeGenerator requires an AiClient + keychain lookup.
             let generator: Arc<dyn CodeGenerator> = Arc::new(StubCodeGenerator::new());
             app.manage(CodeGeneratorState::new(generator));
+
+            // Image pipeline — stub until AiClient provider keys arrive.
+            let pipeline: Arc<dyn ImagePipeline> = Arc::new(StubImagePipeline::new());
+            app.manage(ImagePipelineState::new(pipeline));
             Ok(())
         })
         .manage(KeyStoreState::new(keystore))
@@ -102,6 +109,10 @@ pub fn run() {
             website_analyzer::commands::analyze_url,
             code_generator::commands::generate_website,
             exporter::commands::export_website,
+            image_pipeline::commands::text_to_image,
+            image_pipeline::commands::image_to_image,
+            image_pipeline::commands::upscale_image,
+            image_pipeline::commands::generate_variants,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

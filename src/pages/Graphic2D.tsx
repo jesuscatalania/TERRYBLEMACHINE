@@ -1,0 +1,287 @@
+import { Download, Image as ImageIcon, Plus, Sparkles, Type } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
+import {
+  ExportDialog,
+  type ExportFormat,
+  type ExportSettings,
+} from "@/components/graphic2d/ExportDialog";
+import {
+  FabricCanvas,
+  type FabricCanvasHandle,
+  type FabricLayer,
+} from "@/components/graphic2d/FabricCanvas";
+import { LayerList } from "@/components/graphic2d/LayerList";
+import { Button } from "@/components/ui/Button";
+import { Dropdown } from "@/components/ui/Dropdown";
+import { Input } from "@/components/ui/Input";
+import { generateVariants, type ImageResult } from "@/lib/imageCommands";
+import { useUiStore } from "@/stores/uiStore";
+
+export function Graphic2DPage() {
+  const canvasRef = useRef<FabricCanvasHandle>(null);
+  const [prompt, setPrompt] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [variants, setVariants] = useState<ImageResult[]>([]);
+  const [layers, setLayers] = useState<FabricLayer[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [filter, setFilter] = useState<
+    "blur" | "sharpen" | "brightness" | "contrast" | "saturation"
+  >("blur");
+  const notify = useUiStore((s) => s.notify);
+
+  async function generate() {
+    if (!prompt.trim()) return;
+    setBusy(true);
+    try {
+      const results = await generateVariants({
+        prompt: prompt.trim(),
+        count: 4,
+        module: "graphic2d",
+      });
+      setVariants(results);
+      notify({
+        kind: "success",
+        message: `Generated ${results.length} variants`,
+      });
+    } catch (err) {
+      notify({
+        kind: "error",
+        message: "Generation failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addVariant(url: string) {
+    try {
+      await canvasRef.current?.addImageFromUrl(url);
+    } catch (err) {
+      notify({
+        kind: "error",
+        message: "Failed to add image",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  function addText() {
+    canvasRef.current?.addText("Type here");
+  }
+
+  function applyFilter(intensity: number) {
+    if (!selectedId) return;
+    canvasRef.current?.applyFilter(selectedId, filter, intensity);
+  }
+
+  const handleExport = useCallback((settings: ExportSettings) => {
+    const handle = canvasRef.current;
+    if (!handle) return;
+    let dataUrl = "";
+    switch (settings.format) {
+      case "png":
+        dataUrl = handle.toPng(settings.transparent);
+        break;
+      case "jpeg":
+        dataUrl = handle.toJpeg(settings.quality);
+        break;
+      case "webp":
+        dataUrl = handle.toWebp(settings.quality);
+        break;
+      case "svg": {
+        const svg = handle.toSvg();
+        dataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+        break;
+      }
+    }
+    triggerDownload(dataUrl, `${settings.filename}.${extFor(settings.format)}`);
+    setExportOpen(false);
+  }, []);
+
+  return (
+    <div className="grid h-full grid-rows-[auto_1fr]">
+      {/* Brief row */}
+      <div className="flex flex-col gap-3 border-neutral-dark-700 border-b p-6">
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-2xs text-accent-500 uppercase tracking-label-wide">
+            MOD—02 · 2D GRAPHIC
+          </span>
+        </div>
+        <div className="flex items-end gap-2">
+          <div className="flex-1">
+            <Input
+              label="Describe the image"
+              id="graphic2d-prompt"
+              placeholder="Minimalist logo for a tech startup, monochrome"
+              value={prompt}
+              onValueChange={setPrompt}
+            />
+          </div>
+          <Button variant="primary" onClick={generate} disabled={!prompt.trim() || busy}>
+            <Sparkles className="h-3 w-3" strokeWidth={1.5} aria-hidden="true" />
+            {busy ? "Generating…" : "Generate 4 variants"}
+          </Button>
+        </div>
+
+        {variants.length > 0 ? (
+          <div className="grid grid-cols-4 gap-2">
+            {variants.map((v) => (
+              <button
+                key={v.url}
+                type="button"
+                onClick={() => addVariant(v.url)}
+                className="group relative aspect-square overflow-hidden rounded-xs border border-neutral-dark-600 bg-neutral-dark-800 hover:border-accent-500"
+              >
+                <img
+                  src={v.url}
+                  alt=""
+                  className="h-full w-full object-cover"
+                  onError={(e) => e.currentTarget.replaceWith(fallbackTile(v.url))}
+                />
+                <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-neutral-dark-950/80 px-2 py-1 text-left font-mono text-2xs text-neutral-dark-200 uppercase tracking-label">
+                  {v.model}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      {/* Split: toolbar + canvas + layers */}
+      <div className="grid min-h-0 grid-cols-[15rem_1fr_14rem]">
+        {/* Toolbar */}
+        <div className="flex flex-col gap-3 border-neutral-dark-700 border-r p-4">
+          <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
+            Tools
+          </span>
+          <Button variant="secondary" size="sm" onClick={addText}>
+            <Type className="h-3 w-3" strokeWidth={1.5} />
+            Add text
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => variants[0] && addVariant(variants[0].url)}
+            disabled={variants.length === 0}
+          >
+            <ImageIcon className="h-3 w-3" strokeWidth={1.5} />
+            Add first variant
+          </Button>
+
+          <div className="mt-2 flex flex-col gap-2">
+            <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
+              Filter
+            </span>
+            <Dropdown
+              value={filter}
+              onChange={(v) => setFilter(v as typeof filter)}
+              options={[
+                { value: "blur", label: "Blur" },
+                { value: "sharpen", label: "Sharpen" },
+                { value: "brightness", label: "Brightness" },
+                { value: "contrast", label: "Contrast" },
+                { value: "saturation", label: "Saturation" },
+              ]}
+            />
+            <input
+              type="range"
+              min={-1}
+              max={1}
+              step={0.05}
+              defaultValue={0}
+              onChange={(e) => applyFilter(Number(e.currentTarget.value))}
+              className="w-full accent-accent-500"
+              disabled={!selectedId}
+            />
+          </div>
+
+          <Button
+            variant="primary"
+            size="sm"
+            className="mt-auto"
+            onClick={() => setExportOpen(true)}
+            disabled={layers.length === 0}
+          >
+            <Download className="h-3 w-3" strokeWidth={1.5} />
+            Export
+          </Button>
+        </div>
+
+        {/* Canvas */}
+        <FabricCanvas
+          ref={canvasRef}
+          width={900}
+          height={600}
+          onLayersChange={setLayers}
+          onSelectionChange={setSelectedId}
+        />
+
+        {/* Layers */}
+        <div className="flex flex-col border-neutral-dark-700 border-l">
+          <div className="flex items-center justify-between border-neutral-dark-700 border-b px-3 py-2">
+            <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
+              Layers · {layers.length}
+            </span>
+            <button
+              type="button"
+              onClick={addText}
+              aria-label="Add text layer"
+              className="text-neutral-dark-400 hover:text-neutral-dark-100"
+            >
+              <Plus className="h-3 w-3" strokeWidth={1.5} />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            <LayerList
+              layers={layers}
+              selectedId={selectedId}
+              onSelect={(id) => {
+                setSelectedId(id);
+              }}
+              onToggleVisible={(id) => canvasRef.current?.toggleVisibility(id)}
+              onToggleLock={(id) => canvasRef.current?.toggleLock(id)}
+              onRemove={(id) => canvasRef.current?.removeLayer(id)}
+            />
+          </div>
+        </div>
+      </div>
+
+      <ExportDialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        onExport={handleExport}
+      />
+    </div>
+  );
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────
+
+function extFor(f: ExportFormat): string {
+  switch (f) {
+    case "jpeg":
+      return "jpg";
+    default:
+      return f;
+  }
+}
+
+function triggerDownload(dataUrl: string, filename: string) {
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+/** Fallback for stub:// variant URLs that won't load in an <img>. */
+function fallbackTile(url: string): HTMLElement {
+  const div = document.createElement("div");
+  div.className =
+    "flex h-full w-full items-center justify-center bg-neutral-dark-800 p-2 text-center font-mono text-2xs text-neutral-dark-400 tracking-label uppercase";
+  div.textContent = `stub · ${url.split("/").pop() ?? ""}`;
+  return div;
+}

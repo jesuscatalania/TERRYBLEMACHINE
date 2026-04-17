@@ -37,7 +37,6 @@ describe("App", () => {
   });
 
   it.each([
-    ["/graphic2d", "Graphic 2D", "graphic2d"],
     ["/graphic3d", "Pseudo-3D", "graphic3d"],
     ["/video", "Video", "video"],
     ["/typography", "Type & Logo", "typography"],

@@ -1,0 +1,113 @@
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+use crate::ai_router::Complexity;
+
+// ─── Inputs ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Text2ImageInput {
+    pub prompt: String,
+    #[serde(default = "default_complexity")]
+    pub complexity: Complexity,
+    /// Module tag for taste-engine context matching (`"graphic2d"`).
+    #[serde(default = "default_module")]
+    pub module: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Image2ImageInput {
+    pub prompt: String,
+    /// URL (or `file://…`) pointing at the source image.
+    pub image_url: String,
+    #[serde(default = "default_complexity")]
+    pub complexity: Complexity,
+    #[serde(default = "default_module")]
+    pub module: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpscaleInput {
+    pub image_url: String,
+    /// 2 or 4 are the Real-ESRGAN conventions. Defaults to 2.
+    #[serde(default = "default_scale")]
+    pub scale: u32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GenerateVariantsInput {
+    pub prompt: String,
+    /// Number of parallel variants to request. Clamped to [1, 8].
+    #[serde(default = "default_variant_count")]
+    pub count: u32,
+    #[serde(default = "default_complexity")]
+    pub complexity: Complexity,
+    #[serde(default = "default_module")]
+    pub module: String,
+}
+
+fn default_complexity() -> Complexity {
+    Complexity::Medium
+}
+fn default_module() -> String {
+    "graphic2d".to_string()
+}
+fn default_scale() -> u32 {
+    2
+}
+fn default_variant_count() -> u32 {
+    4
+}
+
+// ─── Result ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImageResult {
+    /// URL of the generated image. For fal.ai this is a cdn.fal.ai URL.
+    pub url: String,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    #[serde(default)]
+    pub seed: Option<u64>,
+    /// The concrete model the router ended up calling (for debugging).
+    pub model: String,
+    #[serde(default)]
+    pub cached: bool,
+}
+
+// ─── Error ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Error)]
+pub enum ImagePipelineError {
+    #[error("invalid input: {0}")]
+    InvalidInput(String),
+
+    #[error("router error: {0}")]
+    Router(String),
+
+    #[error("no image URL in response")]
+    EmptyResponse,
+
+    #[error("all {0} variants failed")]
+    AllVariantsFailed(u32),
+}
+
+// ─── Trait ─────────────────────────────────────────────────────────────
+
+#[async_trait]
+pub trait ImagePipeline: Send + Sync {
+    async fn text_to_image(
+        &self,
+        input: Text2ImageInput,
+    ) -> Result<ImageResult, ImagePipelineError>;
+    async fn image_to_image(
+        &self,
+        input: Image2ImageInput,
+    ) -> Result<ImageResult, ImagePipelineError>;
+    async fn upscale(&self, input: UpscaleInput) -> Result<ImageResult, ImagePipelineError>;
+    async fn variants(
+        &self,
+        input: GenerateVariantsInput,
+    ) -> Result<Vec<ImageResult>, ImagePipelineError>;
+}
