@@ -30,7 +30,7 @@ Projekt-Grundgerüst steht. `pnpm tauri dev` öffnet ein leeres Fenster. Tests l
 
 ```bash
 # ── 0.1.1 Im Projektordner starten ──
-cd /Users/enfantterryble/Documents/Projekte/TERRYBLEMACHINE
+cd ~/Documents/Projekte/TERRYBLEMACHINE
 ```
 
 Innerhalb von Claude Code:

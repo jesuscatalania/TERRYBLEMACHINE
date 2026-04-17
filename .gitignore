@@ -24,6 +24,14 @@ src-tauri/gen
 .env.*
 !.env.example
 
+# meingeschmack/ — personal taste data stays local. Only README is public.
+meingeschmack/regeln/*
+!meingeschmack/regeln/.gitkeep
+meingeschmack/referenzen/**
+!meingeschmack/referenzen/.gitkeep
+meingeschmack/paletten/*
+!meingeschmack/paletten/.gitkeep
+
 # Rust (repo root, in case)
 target/
 
