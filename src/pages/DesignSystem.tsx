@@ -1,5 +1,9 @@
 import { Box, Film, Globe, Image, Type } from "lucide-react";
 import { useState } from "react";
+import { CombinedInput } from "@/components/inputs/CombinedInput";
+import { ImageDropzone } from "@/components/inputs/ImageDropzone";
+import { PromptInput } from "@/components/inputs/PromptInput";
+import { UrlInput } from "@/components/inputs/UrlInput";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardFooter, CardHeader } from "@/components/ui/Card";
@@ -225,6 +229,46 @@ export function DesignSystemPage() {
               Error
             </Button>
           </div>
+        </Section>
+
+        {/* Prompt Input */}
+        <Section label="Prompt input (+ history)" tag="COMP—11">
+          <PromptInput
+            onSubmit={(t) => notify({ kind: "info", message: "Prompt submitted", detail: t })}
+          />
+        </Section>
+
+        {/* Image Dropzone */}
+        <Section label="Image dropzone" tag="COMP—12">
+          <ImageDropzone
+            onChange={(f) => {
+              if (f) {
+                notify({
+                  kind: "success",
+                  message: `Attached: ${f.name}`,
+                  detail: f.type,
+                });
+              }
+            }}
+          />
+        </Section>
+
+        {/* URL Input */}
+        <Section label="URL input (favicon preview)" tag="COMP—13">
+          <UrlInput label="Reference URL" onValidChange={() => {}} />
+        </Section>
+
+        {/* Combined Input */}
+        <Section label="Combined input (text + image)" tag="COMP—14">
+          <CombinedInput
+            onSubmit={({ text, image }) =>
+              notify({
+                kind: "info",
+                message: "Combined submission",
+                detail: image ? `Text "${text}" + attachment ${image.name}` : `Text "${text}"`,
+              })
+            }
+          />
         </Section>
       </div>
     </div>
