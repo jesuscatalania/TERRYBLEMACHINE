@@ -7,7 +7,7 @@
 //! (TaskKind → Model → Provider → ImageResult) vollständig abgedeckt.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use serde_json::json;
@@ -28,7 +28,25 @@ use terryblemachine_lib::image_pipeline::{
 /// The client claims to be `Provider::Fal` and declares support for every
 /// model, so we can register the same instance under both `Provider::Fal`
 /// and `Provider::Replicate` and also satisfy the image-edit/upscale routes.
-struct StubFalClient;
+///
+/// Captures the last [`AiRequest`] it saw so tests can assert that the
+/// pipeline forwarded provider-specific payload fields (source URL, scale, …)
+/// without reaching over the wire. Closes FU #93.
+struct StubFalClient {
+    captured: Arc<Mutex<Option<AiRequest>>>,
+}
+
+impl StubFalClient {
+    fn new() -> Self {
+        Self {
+            captured: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    fn captured_handle(&self) -> Arc<Mutex<Option<AiRequest>>> {
+        Arc::clone(&self.captured)
+    }
+}
 
 #[async_trait]
 impl AiClient for StubFalClient {
@@ -45,6 +63,7 @@ impl AiClient for StubFalClient {
         model: Model,
         request: &AiRequest,
     ) -> Result<AiResponse, ProviderError> {
+        *self.captured.lock().expect("captured mutex poisoned") = Some(request.clone());
         let url = format!("https://fake.fal/{}.png", request.prompt.len());
         Ok(AiResponse {
             request_id: request.id.clone(),
@@ -71,14 +90,37 @@ impl AiClient for StubFalClient {
     }
 }
 
+/// Harness bundling a pipeline and a handle to the stub's captured request,
+/// so tests can assert payload passthrough after `await`.
+struct PipelineHarness {
+    pipeline: RouterImagePipeline,
+    captured: Arc<Mutex<Option<AiRequest>>>,
+}
+
+impl PipelineHarness {
+    fn last_request(&self) -> AiRequest {
+        self.captured
+            .lock()
+            .expect("captured mutex poisoned")
+            .clone()
+            .expect("expected StubFalClient::execute to have been called")
+    }
+}
+
 fn build_pipeline() -> RouterImagePipeline {
-    let stub: Arc<dyn AiClient> = Arc::new(StubFalClient);
+    build_harness().pipeline
+}
+
+fn build_harness() -> PipelineHarness {
+    let stub = Arc::new(StubFalClient::new());
+    let captured = stub.captured_handle();
+    let stub_trait: Arc<dyn AiClient> = stub;
     let mut clients: HashMap<Provider, Arc<dyn AiClient>> = HashMap::new();
-    clients.insert(Provider::Fal, Arc::clone(&stub));
+    clients.insert(Provider::Fal, Arc::clone(&stub_trait));
     // Same client registered for Replicate so ImageGeneration's fallback
     // chain (FalFluxPro → ReplicateFluxDev) resolves cleanly even if the
     // primary hand-off changes.
-    clients.insert(Provider::Replicate, Arc::clone(&stub));
+    clients.insert(Provider::Replicate, Arc::clone(&stub_trait));
 
     let router = Arc::new(AiRouter::new(
         Arc::new(DefaultRoutingStrategy),
@@ -86,7 +128,10 @@ fn build_pipeline() -> RouterImagePipeline {
         RetryPolicy::default_policy(),
         Arc::new(PriorityQueue::new()),
     ));
-    RouterImagePipeline::new(router)
+    PipelineHarness {
+        pipeline: RouterImagePipeline::new(router),
+        captured,
+    }
 }
 
 #[tokio::test]
@@ -115,11 +160,13 @@ async fn text_to_image_returns_fal_url() {
 
 #[tokio::test]
 async fn image_to_image_passes_source_url() {
-    let pipeline = build_pipeline();
-    let result = pipeline
+    let harness = build_harness();
+    let source = "https://src/a.png";
+    let result = harness
+        .pipeline
         .image_to_image(Image2ImageInput {
             prompt: "make it neon".into(),
-            image_url: "file:///tmp/source.png".into(),
+            image_url: source.into(),
             complexity: Complexity::Medium,
             module: "graphic2d".into(),
         })
@@ -130,12 +177,24 @@ async fn image_to_image_passes_source_url() {
     assert!(result.url.starts_with("https://fake.fal/"));
     // ImageEdit routes to FalFluxPro.
     assert_eq!(result.model, format!("{:?}", Model::FalFluxPro));
+
+    // Assert the source URL actually reached the AiClient via the payload —
+    // proves the pipeline serializes image_url into the JSON body and the
+    // router doesn't strip it. (FU #93)
+    let captured = harness.last_request();
+    assert_eq!(
+        captured.payload.get("image_url").and_then(|v| v.as_str()),
+        Some(source),
+        "expected source image_url to reach the client unchanged, got payload: {}",
+        captured.payload
+    );
 }
 
 #[tokio::test]
 async fn upscale_returns_result() {
-    let pipeline = build_pipeline();
-    let result = pipeline
+    let harness = build_harness();
+    let result = harness
+        .pipeline
         .upscale(UpscaleInput {
             image_url: "file:///tmp/small.png".into(),
             scale: 2,
@@ -146,6 +205,23 @@ async fn upscale_returns_result() {
     assert!(!result.url.is_empty());
     // Upscale routes to FalRealEsrgan.
     assert_eq!(result.model, format!("{:?}", Model::FalRealEsrgan));
+
+    // Assert the scale factor actually reached the AiClient via the payload —
+    // the provider wiring would silently drop an unsupported parameter name
+    // if we refactored the caller without this check. (FU #93)
+    let captured = harness.last_request();
+    assert_eq!(
+        captured.payload.get("scale").and_then(|v| v.as_u64()),
+        Some(2),
+        "expected scale=2 to reach the client unchanged, got payload: {}",
+        captured.payload
+    );
+    assert_eq!(
+        captured.payload.get("image_url").and_then(|v| v.as_str()),
+        Some("file:///tmp/small.png"),
+        "expected upscale image_url to reach the client, got payload: {}",
+        captured.payload
+    );
 }
 
 #[tokio::test]

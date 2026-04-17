@@ -112,7 +112,7 @@ fn delete_removes_the_project_folder() {
     state.store().delete(&created.id).expect("delete_project");
     assert!(!project_dir.exists());
 
-    // second delete is a no-op (matches ProjectError::NotFound contract).
+    // second delete is a no-op (delete is idempotent: missing id returns Ok).
     state
         .store()
         .delete(&created.id)
@@ -154,4 +154,22 @@ fn state_store_yields_root_aware_file_store() {
         })
         .unwrap();
     assert!(fs::metadata(dir.path().join("roots").join("project.json")).is_ok());
+}
+
+#[test]
+fn state_exposes_projects_root_as_string() {
+    // The `projects_root` #[tauri::command] body is just
+    // `state.root.to_string_lossy().into_owned()`. We can't construct a
+    // real `tauri::State` outside the Tauri runtime, but we can exercise
+    // the same code path directly via `state.root` — this pins the
+    // contract that projects_root returns the constructor-provided root
+    // verbatim. Closes FU #96.
+    let dir = TempDir::new().unwrap();
+    let state = ProjectStoreState::new(dir.path().to_path_buf());
+
+    // Mirror the command body exactly.
+    let root_str = state.root.to_string_lossy().into_owned();
+    assert_eq!(root_str, dir.path().to_string_lossy());
+    // And the returned string points at a real directory.
+    assert!(std::path::Path::new(&root_str).is_dir());
 }

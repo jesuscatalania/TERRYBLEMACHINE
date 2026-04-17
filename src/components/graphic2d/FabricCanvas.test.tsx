@@ -3,16 +3,10 @@ import { createRef } from "react";
 import { describe, expect, it } from "vitest";
 import { FabricCanvas, type FabricCanvasHandle } from "@/components/graphic2d/FabricCanvas";
 
-// jsdom does not implement HTMLCanvasElement.getContext(). fabric.Canvas
-// calls it during construction, so every test in this file would throw at
-// render time. We keep the assertions so they serve as documentation of the
-// handle surface, but skip them until we have a proper canvas shim.
-//
-// TODO(#104, #106): once vitest-canvas-mock is wired in, un-skip this suite
-// and add a toGif() empty-canvas test asserting the promise resolves rather
-// than hangs (covers the abort / FileReader.onerror / synchronous-throw
-// paths added in the T19 hardening pass).
-describe.skip("FabricCanvas handle", () => {
+// vitest-canvas-mock (wired in src/test/setup.ts) patches
+// HTMLCanvasElement.getContext() so fabric.Canvas can be instantiated under
+// jsdom. Un-skipped as part of FU #104.
+describe("FabricCanvas handle", () => {
   it("exposes flipH/flipV/setCanvasSize/cropToSelection/enter*Select/exitSelectionMode", () => {
     const ref = createRef<FabricCanvasHandle>();
     render(<FabricCanvas ref={ref} width={200} height={100} />);

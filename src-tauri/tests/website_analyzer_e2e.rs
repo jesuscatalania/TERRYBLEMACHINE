@@ -10,6 +10,8 @@
 use std::path::PathBuf;
 
 use terryblemachine_lib::website_analyzer::{PlaywrightUrlAnalyzer, UrlAnalyzer};
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn script_path() -> PathBuf {
     // `cargo test` runs from src-tauri/ — script lives in the workspace root.
@@ -80,5 +82,106 @@ async fn analyze_passes_assets_dir_flag_to_sidecar() {
     assert!(
         logged.lines().any(|l| l == flag),
         "expected `{flag}` in argv, got:\n{logged}"
+    );
+}
+
+/// Minimal valid 16x16 transparent PNG (for favicon fixture).
+fn tiny_png() -> Vec<u8> {
+    // 1x1 PNG with a single transparent pixel — byte-for-byte canonical form.
+    // Source: https://github.com/mathiasbynens/small
+    const DATA: &[u8] = &[
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00,
+        0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
+        0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+    ];
+    DATA.to_vec()
+}
+
+/// End-to-end: serves a tiny HTML page with an `<img>` and a favicon via
+/// `wiremock::MockServer`, runs the real Playwright sidecar against it with
+/// `assets_dir = Some(...)`, and asserts that `downloadAssets()` actually ran
+/// — i.e. the assets directory contains at least one file and the returned
+/// `AnalysisResult.assets` vec is non-empty.
+///
+/// Marked `#[ignore]` because it needs the real Chromium browser that
+/// `playwright` downloads on first `npx playwright install`. In CI sandboxes
+/// that bar network egress during the cargo test step this cannot succeed.
+///
+/// Run locally with:
+///
+/// ```sh
+/// cargo test --test website_analyzer_e2e analyze_downloads_assets_from_mock_server -- --ignored
+/// ```
+///
+/// (FU #100 — the only test that exercises the 90-line `downloadAssets()`
+/// function in `scripts/url_analyzer.mjs`.)
+#[tokio::test]
+#[ignore]
+async fn analyze_downloads_assets_from_mock_server() {
+    let server = MockServer::start().await;
+
+    let html = r#"<!doctype html>
+<html><head>
+  <title>FU100 Fixture</title>
+  <link rel="icon" href="/favicon.ico">
+</head><body>
+  <img src="/pic.png" alt="pic">
+</body></html>"#;
+
+    // NOTE: wiremock's `set_body_string` hard-codes `Content-Type: text/plain`
+    // and `insert_header` is additive, so we must use `set_body_raw` to get
+    // the browser to parse the response as HTML. Without this, Chromium
+    // treats the body as plain text and no `<img>`/`<link>` tags land in the
+    // DOM — which silently breaks the asset-download assertion.
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(html.as_bytes(), "text/html"))
+        .mount(&server)
+        .await;
+
+    let png = tiny_png();
+    Mock::given(method("GET"))
+        .and(path("/favicon.ico"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(png.clone(), "image/png"))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/pic.png"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(png, "image/png"))
+        .mount(&server)
+        .await;
+
+    let assets_dir = tempfile::tempdir().expect("tempdir");
+
+    let analyzer = PlaywrightUrlAnalyzer::new(script_path());
+    let result = analyzer
+        .analyze(&server.uri(), None, Some(assets_dir.path()))
+        .await
+        .expect("analyzer should succeed against mock server");
+
+    assert_eq!(result.status, 200);
+    assert_eq!(result.title, "FU100 Fixture");
+    assert!(
+        !result.assets.is_empty(),
+        "expected at least one downloaded asset entry in AnalysisResult, got: {:?}",
+        result.assets
+    );
+
+    // Directory must contain at least one saved file — the `saved_as` names
+    // in `result.assets` are relative to the assets directory.
+    let mut on_disk = 0;
+    let mut entries = tokio::fs::read_dir(assets_dir.path())
+        .await
+        .expect("read assets dir");
+    while let Ok(Some(_)) = entries.next_entry().await {
+        on_disk += 1;
+    }
+    assert!(
+        on_disk > 0,
+        "expected at least one file saved under {}, got {on_disk}",
+        assets_dir.path().display()
     );
 }
