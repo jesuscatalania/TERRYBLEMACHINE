@@ -18,6 +18,12 @@ export interface Command extends CommandInput {
   timestamp: string;
 }
 
+/** Shape written to disk — functions are stripped. */
+export interface SerializableCommand {
+  label: string;
+  timestamp: string;
+}
+
 export interface HistoryState {
   past: Command[];
   future: Command[];
@@ -27,6 +33,23 @@ export interface HistoryState {
   canUndo: () => boolean;
   canRedo: () => boolean;
   clear: () => void;
+  /**
+   * Serialises the history stacks to a JSON string — labels + timestamps only.
+   * Safe to write to disk (no functions, no closures).
+   */
+  serialize: () => string;
+  /**
+   * Rehydrates history stacks from a serialised JSON string.
+   *
+   * IMPORTANT: Hydrated commands are *read-only markers* — their `do` / `undo`
+   * are no-ops because the original closures cannot be serialised. Calling
+   * `undo()` / `redo()` on a hydrated command will not actually replay the
+   * mutation; true replay requires a command registry, which is out of scope
+   * for Phase 0 persistence.
+   *
+   * On malformed input, stacks are left untouched.
+   */
+  hydrate: (raw: string) => void;
 }
 
 const makeId = () =>
@@ -84,4 +107,40 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   canUndo: () => get().past.length > 0,
   canRedo: () => get().future.length > 0,
   clear: () => set({ past: [], future: [] }),
+
+  serialize: () => {
+    const { past, future } = get();
+    const toMarker = (c: Command): SerializableCommand => ({
+      label: c.label,
+      timestamp: c.timestamp,
+    });
+    return JSON.stringify({
+      past: past.map(toMarker),
+      future: future.map(toMarker),
+    });
+  },
+
+  hydrate: (raw) => {
+    try {
+      const parsed = JSON.parse(raw) as {
+        past?: SerializableCommand[];
+        future?: SerializableCommand[];
+      };
+      if (!parsed || typeof parsed !== "object") return;
+      const noop = () => {};
+      const fromMarker = (m: SerializableCommand): Command => ({
+        label: m.label,
+        timestamp: m.timestamp,
+        id: makeId(),
+        do: noop,
+        undo: noop,
+      });
+      set({
+        past: Array.isArray(parsed.past) ? parsed.past.map(fromMarker) : [],
+        future: Array.isArray(parsed.future) ? parsed.future.map(fromMarker) : [],
+      });
+    } catch {
+      // Corrupt file → leave stacks untouched.
+    }
+  },
 }));

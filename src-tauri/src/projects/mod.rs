@@ -8,6 +8,7 @@ mod errors;
 mod storage;
 
 pub mod commands;
+pub mod history_commands;
 
 pub use errors::ProjectError;
 pub use storage::{FileProjectStore, NewProject, Project};

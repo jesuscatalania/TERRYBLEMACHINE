@@ -103,6 +103,8 @@ pub fn run() {
             projects::commands::list_projects,
             projects::commands::delete_project,
             projects::commands::projects_root,
+            projects::history_commands::read_project_history,
+            projects::history_commands::write_project_history,
             ai_router::commands::route_request,
             ai_router::commands::get_queue_status,
             ai_router::commands::get_cache_stats,

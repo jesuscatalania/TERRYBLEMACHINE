@@ -18,6 +18,8 @@ vi.mock("@/lib/projectCommands", () => ({
   openProjectFile: vi.fn(),
   deleteProject: vi.fn(),
   projectsRoot: vi.fn().mockResolvedValue("/tmp"),
+  readProjectHistory: vi.fn().mockResolvedValue('{"past":[],"future":[]}'),
+  writeProjectHistory: vi.fn().mockResolvedValue(undefined),
   isProjectIpcError: (v: unknown) => typeof v === "object" && v !== null && "kind" in v,
 }));
 

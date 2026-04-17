@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useAppStore } from "@/stores/appStore";
+import { useHistoryStore } from "@/stores/historyStore";
 
 describe("appStore", () => {
   beforeEach(() => {
@@ -8,6 +9,7 @@ describe("appStore", () => {
       sidebarOpen: true,
       activeModule: "website",
     });
+    useHistoryStore.setState({ past: [], future: [] });
   });
 
   it("has dark theme as default", () => {

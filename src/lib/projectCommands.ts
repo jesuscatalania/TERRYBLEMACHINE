@@ -46,3 +46,16 @@ export function deleteProject(id: string): Promise<void> {
 export function projectsRoot(): Promise<string> {
   return invoke<string>("projects_root");
 }
+
+/**
+ * Reads the serialised undo/redo history for a project.
+ * Returns an empty-stacks payload when no `history.json` exists yet.
+ */
+export function readProjectHistory(path: string): Promise<string> {
+  return invoke<string>("read_project_history", { path });
+}
+
+/** Persists the serialised undo/redo history to `<project>/history.json`. */
+export function writeProjectHistory(path: string, json: string): Promise<void> {
+  return invoke<void>("write_project_history", { path, json });
+}

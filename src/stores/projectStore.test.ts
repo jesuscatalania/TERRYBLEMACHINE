@@ -1,6 +1,14 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useHistoryStore } from "@/stores/historyStore";
 import { useProjectStore } from "@/stores/projectStore";
+
+// History persistence rides on Tauri IPC — stub it out so store unit tests
+// don't hit the bridge. Returns the empty-stacks payload on read; resolves
+// writes silently.
+vi.mock("@/lib/projectCommands", () => ({
+  readProjectHistory: vi.fn().mockResolvedValue('{"past":[],"future":[]}'),
+  writeProjectHistory: vi.fn().mockResolvedValue(undefined),
+}));
 
 describe("projectStore", () => {
   beforeEach(() => {
