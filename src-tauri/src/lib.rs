@@ -17,7 +17,7 @@ use ai_router::{AiRouter, DefaultRoutingStrategy, PriorityQueue, RetryPolicy};
 use code_generator::commands::CodeGeneratorState;
 use code_generator::{CodeGenerator, StubCodeGenerator};
 use image_pipeline::commands::ImagePipelineState;
-use image_pipeline::{ImagePipeline, StubImagePipeline};
+use image_pipeline::{ImagePipeline, RouterImagePipeline};
 use keychain::commands::KeyStoreState;
 use projects::commands::{resolve_default_root, ProjectStoreState};
 use taste_engine::commands::TasteEngineState;
@@ -45,9 +45,11 @@ pub fn run() {
         Arc::new(PriorityQueue::new()),
     ));
 
+    let ai_router_for_setup = Arc::clone(&ai_router);
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .setup(|app| {
+        .setup(move |app| {
             let root = resolve_default_root(app.handle());
             app.manage(ProjectStoreState::new(root));
 
@@ -61,7 +63,7 @@ pub fn run() {
                 meingeschmack_root,
                 Arc::new(StubVisionAnalyzer::new()),
             ));
-            app.manage(TasteEngineState::new(engine));
+            app.manage(TasteEngineState::new(Arc::clone(&engine)));
 
             // Website analyzer sidecar — expects scripts/url_analyzer.mjs
             // in the app's working directory + `node` on PATH.
@@ -78,8 +80,13 @@ pub fn run() {
             let generator: Arc<dyn CodeGenerator> = Arc::new(StubCodeGenerator::new());
             app.manage(CodeGeneratorState::new(generator));
 
-            // Image pipeline — stub until AiClient provider keys arrive.
-            let pipeline: Arc<dyn ImagePipeline> = Arc::new(StubImagePipeline::new());
+            // Image pipeline — routed through the production AiRouter with
+            // taste-engine enrichment. Missing provider keys bubble up as
+            // routing errors rather than stub URLs.
+            let pipeline: Arc<dyn ImagePipeline> = Arc::new(
+                RouterImagePipeline::new(Arc::clone(&ai_router_for_setup))
+                    .with_taste_engine(Arc::clone(&engine)),
+            );
             app.manage(ImagePipelineState::new(pipeline));
             Ok(())
         })
