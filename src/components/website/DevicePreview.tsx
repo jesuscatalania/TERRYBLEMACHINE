@@ -4,7 +4,7 @@ import type { GeneratedFile } from "@/lib/websiteCommands";
 export type DeviceSize = "desktop" | "tablet" | "mobile";
 
 const DEVICE_WIDTHS: Record<DeviceSize, number> = {
-  desktop: 1280,
+  desktop: 1920,
   tablet: 768,
   mobile: 375,
 };
