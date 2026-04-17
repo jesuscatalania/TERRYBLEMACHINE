@@ -95,6 +95,8 @@ pub enum TaskKind {
     Text3D,
     /// Image-to-3D mesh.
     Image3D,
+    /// Image analysis via a vision-capable text model (Claude Vision).
+    ImageAnalysis,
 }
 
 /// Priority within the router's queue. Higher variants are dequeued first.

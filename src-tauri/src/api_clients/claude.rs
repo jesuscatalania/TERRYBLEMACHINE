@@ -91,11 +91,43 @@ impl ClaudeClient {
         let slug = Self::model_slug(model)
             .ok_or_else(|| ProviderError::Permanent(format!("unsupported model {model:?}")))?;
 
+        // Vision path: if `payload.images[]` is set, build a multi-block
+        // content array with one text block followed by one `image` block
+        // per entry. Each image is expected as { media_type, data } where
+        // data is base64-encoded and media_type is an RFC 2046 MIME type.
+        let content = if let Some(imgs) = request.payload.get("images").and_then(|v| v.as_array()) {
+            let mut blocks = vec![json!({ "type": "text", "text": request.prompt.clone() })];
+            for img in imgs {
+                let media_type =
+                    img.get("media_type")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| {
+                            ProviderError::Permanent(
+                                "claude vision: images[].media_type required".into(),
+                            )
+                        })?;
+                let data = img.get("data").and_then(|v| v.as_str()).ok_or_else(|| {
+                    ProviderError::Permanent("claude vision: images[].data required".into())
+                })?;
+                blocks.push(json!({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": data
+                    }
+                }));
+            }
+            serde_json::Value::Array(blocks)
+        } else {
+            serde_json::Value::String(request.prompt.clone())
+        };
+
         let body = json!({
             "model": slug,
             "max_tokens": 1024,
             "messages": [
-                { "role": "user", "content": request.prompt.clone() }
+                { "role": "user", "content": content }
             ]
         });
 
@@ -191,7 +223,7 @@ mod tests {
     use super::*;
     use crate::ai_router::{Complexity, Priority, TaskKind};
     use crate::keychain::InMemoryStore;
-    use wiremock::matchers::{header, method, path};
+    use wiremock::matchers::{body_partial_json, header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn key_store_with_key() -> Arc<dyn KeyStore> {
@@ -308,5 +340,67 @@ mod tests {
         let client = ClaudeClient::for_test(key_store_with_key(), "http://localhost".to_string());
         let usage = client.get_usage().await.unwrap();
         assert!(usage.notes.is_some());
+    }
+
+    #[tokio::test]
+    async fn vision_payload_uses_image_block() {
+        // When `payload.images[]` is present the request body's
+        // messages[0].content must be an array with a text block followed
+        // by one image block per entry, each with a base64 source.
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .and(body_partial_json(json!({
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        { "type": "text", "text": "describe this image" },
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": "AAAA"
+                            }
+                        }
+                    ]
+                }]
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "content": [{ "type": "text", "text": "ok" }],
+                "stop_reason": "end_turn"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = ClaudeClient::for_test(key_store_with_key(), server.uri());
+        let req = AiRequest {
+            id: "v1".into(),
+            task: TaskKind::ImageAnalysis,
+            priority: Priority::Normal,
+            complexity: Complexity::Medium,
+            prompt: "describe this image".into(),
+            payload: json!({
+                "images": [{ "media_type": "image/png", "data": "AAAA" }]
+            }),
+        };
+        client.execute(Model::ClaudeSonnet, &req).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn vision_payload_rejects_missing_media_type() {
+        let server = MockServer::start().await;
+        let client = ClaudeClient::for_test(key_store_with_key(), server.uri());
+        let req = AiRequest {
+            id: "v2".into(),
+            task: TaskKind::ImageAnalysis,
+            priority: Priority::Normal,
+            complexity: Complexity::Medium,
+            prompt: "x".into(),
+            payload: json!({ "images": [{ "data": "AAAA" }] }),
+        };
+        let err = client.execute(Model::ClaudeSonnet, &req).await.unwrap_err();
+        assert!(matches!(err, ProviderError::Permanent(_)));
     }
 }

@@ -71,6 +71,10 @@ impl RoutingStrategy for DefaultRoutingStrategy {
             // 3D — Meshy is the only Pro-grade option; no fallback yet.
             (Text3D, _) => RouteDecision::new(MeshyText3D),
             (Image3D, _) => RouteDecision::new(MeshyImage3D),
+
+            // Vision analysis — Claude Sonnet leads; Haiku is the cheaper
+            // fallback for simple reference-image extraction.
+            (ImageAnalysis, _) => RouteDecision::with_fallbacks(ClaudeSonnet, vec![ClaudeHaiku]),
         }
     }
 }
@@ -198,6 +202,13 @@ mod tests {
     fn image_3d_uses_meshy_image_endpoint() {
         let d = DefaultRoutingStrategy.select(&req(TaskKind::Image3D, Complexity::Medium));
         assert_eq!(d.primary, Model::MeshyImage3D);
+    }
+
+    #[test]
+    fn image_analysis_uses_sonnet_with_haiku_fallback() {
+        let d = DefaultRoutingStrategy.select(&req(TaskKind::ImageAnalysis, Complexity::Medium));
+        assert_eq!(d.primary, Model::ClaudeSonnet);
+        assert_eq!(d.fallbacks, vec![Model::ClaudeHaiku]);
     }
 
     // ── Retry policy ──────────────────────────────────────────────────────
