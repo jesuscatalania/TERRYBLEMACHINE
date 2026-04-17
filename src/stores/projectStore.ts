@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { ModuleId } from "@/stores/appStore";
+import { useHistoryStore } from "@/stores/historyStore";
 
 export interface Project {
   id: string;
@@ -27,6 +28,8 @@ export const useProjectStore = create<ProjectState>((set) => ({
   currentProject: null,
   recents: [],
   openProject: (project) => {
+    // History is scoped per-project: wipe it on every project switch.
+    useHistoryStore.getState().clear();
     set((state) => {
       const withoutDupe = state.recents.filter((p) => p.id !== project.id);
       return {
@@ -35,7 +38,10 @@ export const useProjectStore = create<ProjectState>((set) => ({
       };
     });
   },
-  closeProject: () => set({ currentProject: null }),
+  closeProject: () => {
+    useHistoryStore.getState().clear();
+    set({ currentProject: null });
+  },
   addRecent: (project) => {
     set((state) => {
       const withoutDupe = state.recents.filter((p) => p.id !== project.id);

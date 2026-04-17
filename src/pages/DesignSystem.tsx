@@ -3,6 +3,7 @@ import { useState } from "react";
 import { CombinedInput } from "@/components/inputs/CombinedInput";
 import { ImageDropzone } from "@/components/inputs/ImageDropzone";
 import { PromptInput } from "@/components/inputs/PromptInput";
+import { UndoableCounter } from "@/components/inputs/UndoableCounter";
 import { UrlInput } from "@/components/inputs/UrlInput";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -269,6 +270,11 @@ export function DesignSystemPage() {
               })
             }
           />
+        </Section>
+
+        {/* Undo/Redo */}
+        <Section label="Undo / Redo (command pattern)" tag="COMP—15">
+          <UndoableCounter />
         </Section>
       </div>
     </div>

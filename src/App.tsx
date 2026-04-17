@@ -6,6 +6,7 @@ import { Shell } from "@/components/shell/Shell";
 import { Toaster } from "@/components/ui/Toast";
 import { useModuleRouteSync } from "@/hooks/useModuleRouteSync";
 import { useProjectsBoot } from "@/hooks/useProjectsBoot";
+import { useUndoRedo } from "@/hooks/useUndoRedo";
 import { createProject as createProjectCommand, type NewProjectInput } from "@/lib/projectCommands";
 import { DesignSystemPage } from "@/pages/DesignSystem";
 import { ModulePlaceholder } from "@/pages/ModulePlaceholder";
@@ -44,6 +45,7 @@ function AnimatedRoutes() {
 
 function App() {
   useProjectsBoot();
+  useUndoRedo();
   const [newDialogOpen, setNewDialogOpen] = useState(false);
   const activeModule = useAppStore((s) => s.activeModule);
   const openProject = useProjectStore((s) => s.openProject);

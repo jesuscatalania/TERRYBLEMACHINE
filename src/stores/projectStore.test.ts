@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { useHistoryStore } from "@/stores/historyStore";
 import { useProjectStore } from "@/stores/projectStore";
 
 describe("projectStore", () => {
   beforeEach(() => {
     useProjectStore.setState({ currentProject: null, recents: [] });
+    useHistoryStore.setState({ past: [], future: [] });
   });
 
   it("starts with no open project", () => {
@@ -80,5 +82,32 @@ describe("projectStore", () => {
     useProjectStore.getState().hydrateRecents(projects);
     expect(useProjectStore.getState().recents).toHaveLength(10);
     expect(useProjectStore.getState().recents[0]?.id).toBe("p0");
+  });
+
+  it("opening a project clears the undo/redo history", () => {
+    useHistoryStore.getState().push({
+      label: "demo",
+      do: () => {},
+      undo: () => {},
+    });
+    expect(useHistoryStore.getState().past).toHaveLength(1);
+    useProjectStore.getState().openProject({
+      id: "p1",
+      name: "Demo",
+      module: "website",
+      path: "/tmp/demo",
+      createdAt: "2026-04-17T00:00:00Z",
+    });
+    expect(useHistoryStore.getState().past).toHaveLength(0);
+  });
+
+  it("closing a project clears the undo/redo history", () => {
+    useHistoryStore.getState().push({
+      label: "demo",
+      do: () => {},
+      undo: () => {},
+    });
+    useProjectStore.getState().closeProject();
+    expect(useHistoryStore.getState().past).toHaveLength(0);
   });
 });
