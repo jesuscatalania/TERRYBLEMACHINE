@@ -245,6 +245,17 @@ impl ImagePipeline for RouterImagePipeline {
                 "source_url and mask_url required".into(),
             ));
         }
+        // Defense in depth: fal.ai flux-fill cannot ingest data-URLs
+        // (>>2MB payloads, no public reachability). The frontend already
+        // guards, but catching this at the router boundary means a stale
+        // or misconfigured caller gets a clear error instead of an opaque
+        // Permanent failure deep inside the provider response.
+        if input.source_url.starts_with("data:") || input.mask_url.starts_with("data:") {
+            return Err(ImagePipelineError::InvalidInput(
+                "inpaint: hosted URLs required — data-URLs unsupported (see Phase 5 upload pipeline)"
+                    .into(),
+            ));
+        }
         let prompt = self.enrich(&input.prompt, &input.module).await;
         let req = new_request(
             TaskKind::Inpaint,
@@ -257,5 +268,81 @@ impl ImagePipeline for RouterImagePipeline {
         );
         let resp = self.dispatch(req).await?;
         response_to_result(resp)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The data-URL guard must fire *before* any `AiRouter::route` call, so
+    /// we can verify it by constructing the pipeline with a `None` router
+    /// candidate: we use a dummy `AiRouter` built from an empty client map
+    /// and assert the error surfaces as `InvalidInput` without needing any
+    /// provider wiring. The guard is a pure string check, so even a
+    /// zero-client router would fail *later* with `Router(...)` if we
+    /// regressed — hence the explicit variant match.
+    #[tokio::test]
+    async fn inpaint_rejects_data_url_source() {
+        use crate::ai_router::{AiRouter, DefaultRoutingStrategy, PriorityQueue, RetryPolicy};
+        use std::collections::HashMap;
+
+        let router = Arc::new(AiRouter::new(
+            Arc::new(DefaultRoutingStrategy),
+            HashMap::new(),
+            RetryPolicy::default_policy(),
+            Arc::new(PriorityQueue::new()),
+        ));
+        let pipeline = RouterImagePipeline::new(router);
+
+        let err = pipeline
+            .inpaint(InpaintInput {
+                prompt: "replace with flowers".into(),
+                source_url: "data:image/png;base64,iVBORw0KGgo=".into(),
+                mask_url: "https://fake.fal/mask.png".into(),
+                complexity: Complexity::Medium,
+                module: "graphic2d".into(),
+            })
+            .await
+            .expect_err("data-URL source must be rejected before routing");
+
+        assert!(
+            matches!(err, ImagePipelineError::InvalidInput(_)),
+            "expected InvalidInput, got {err:?}"
+        );
+        assert!(
+            format!("{err}").contains("data-URLs"),
+            "error message should mention data-URLs, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn inpaint_rejects_data_url_mask() {
+        use crate::ai_router::{AiRouter, DefaultRoutingStrategy, PriorityQueue, RetryPolicy};
+        use std::collections::HashMap;
+
+        let router = Arc::new(AiRouter::new(
+            Arc::new(DefaultRoutingStrategy),
+            HashMap::new(),
+            RetryPolicy::default_policy(),
+            Arc::new(PriorityQueue::new()),
+        ));
+        let pipeline = RouterImagePipeline::new(router);
+
+        let err = pipeline
+            .inpaint(InpaintInput {
+                prompt: "replace with flowers".into(),
+                source_url: "https://fake.fal/src.png".into(),
+                mask_url: "data:image/png;base64,iVBORw0KGgo=".into(),
+                complexity: Complexity::Medium,
+                module: "graphic2d".into(),
+            })
+            .await
+            .expect_err("data-URL mask must be rejected before routing");
+
+        assert!(
+            matches!(err, ImagePipelineError::InvalidInput(_)),
+            "expected InvalidInput, got {err:?}"
+        );
     }
 }

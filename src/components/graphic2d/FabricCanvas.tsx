@@ -370,6 +370,12 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
           return pdf.output("dataurlstring");
         },
         toGif({ frames = 1, delayMs = 100 } = {}) {
+          // NOTE: Graphic2D.handleExport awaits this promise without a
+          // try/catch, so a rejection would bubble as an unhandled error.
+          // We intentionally resolve("") on every failure path and let the
+          // caller's empty-string fallback (triggerDownload on empty data
+          // is a no-op) avoid uncaught rejections. If a future caller adds
+          // error handling, switch these to reject() for clearer toasts.
           return new Promise<string>((resolve) => {
             const c = canvasRef.current;
             if (!c) {
@@ -390,9 +396,21 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
             gif.on("finished", (blob: Blob) => {
               const r = new FileReader();
               r.onload = () => resolve(r.result as string);
+              r.onerror = () => resolve("");
               r.readAsDataURL(blob);
             });
-            gif.render();
+            // gif.js fires "abort" when a worker aborts or render() is
+            // cancelled; without this handler the promise would hang forever.
+            gif.on("abort", () => resolve(""));
+            try {
+              gif.render();
+            } catch (err) {
+              // Synchronous throw from gif.render() (e.g. worker script 404):
+              // resolve to "" so the caller's fallback kicks in instead of
+              // hanging.
+              console.error("gif.render() threw synchronously:", err);
+              resolve("");
+            }
           });
         },
         enterMaskMode() {
@@ -431,7 +449,10 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
           const c = canvasRef.current;
           if (!c) return "";
           // Hide every non-mask object, paint the background pure black, export,
-          // then restore the previous visibility + background.
+          // then restore the previous visibility + background. The try/finally
+          // ensures canvas state is restored even if toDataURL() throws (e.g.
+          // on a CORS-tainted canvas) — otherwise visibility + background
+          // would stay broken until the next refreshLayers call.
           const originals: Array<{ obj: fabric.Object; vis: boolean }> = [];
           for (const obj of c.getObjects()) {
             const isMask = (obj as unknown as { __mask?: boolean }).__mask === true;
@@ -441,13 +462,15 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
           const prevBg = c.backgroundColor;
           c.backgroundColor = "#000000";
           c.requestRenderAll();
-          const url = c.toDataURL({ format: "png", multiplier: 1 });
-          for (const { obj, vis } of originals) {
-            obj.visible = vis;
+          try {
+            return c.toDataURL({ format: "png", multiplier: 1 });
+          } finally {
+            for (const { obj, vis } of originals) {
+              obj.visible = vis;
+            }
+            c.backgroundColor = prevBg;
+            c.requestRenderAll();
           }
-          c.backgroundColor = prevBg;
-          c.requestRenderAll();
-          return url;
         },
         getFirstImageUrl() {
           const c = canvasRef.current;

@@ -187,6 +187,29 @@ async fn inpaint_rejects_empty_prompt() {
 }
 
 #[tokio::test]
+async fn inpaint_rejects_data_urls() {
+    let pipeline = build_pipeline();
+    let err = pipeline
+        .inpaint(InpaintInput {
+            prompt: "replace with flowers".into(),
+            source_url: "data:image/png;base64,iVBORw0KGgo=".into(),
+            mask_url: "https://fake.fal/mask.png".into(),
+            complexity: Complexity::Medium,
+            module: "graphic2d".into(),
+        })
+        .await
+        .expect_err("data-URL source must be rejected before routing");
+    assert!(
+        format!("{err:?}").contains("InvalidInput"),
+        "expected InvalidInput for data-URL source, got {err:?}"
+    );
+    assert!(
+        format!("{err}").contains("data-URLs"),
+        "expected error message to mention data-URLs, got: {err}"
+    );
+}
+
+#[tokio::test]
 async fn variants_yields_requested_count() {
     let pipeline = build_pipeline();
     let results = pipeline

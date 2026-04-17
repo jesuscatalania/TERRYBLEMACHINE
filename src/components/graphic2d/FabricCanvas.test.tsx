@@ -7,6 +7,11 @@ import { FabricCanvas, type FabricCanvasHandle } from "@/components/graphic2d/Fa
 // calls it during construction, so every test in this file would throw at
 // render time. We keep the assertions so they serve as documentation of the
 // handle surface, but skip them until we have a proper canvas shim.
+//
+// TODO(#104, #106): once vitest-canvas-mock is wired in, un-skip this suite
+// and add a toGif() empty-canvas test asserting the promise resolves rather
+// than hangs (covers the abort / FileReader.onerror / synchronous-throw
+// paths added in the T19 hardening pass).
 describe.skip("FabricCanvas handle", () => {
   it("exposes flipH/flipV/setCanvasSize/cropToSelection/enter*Select/exitSelectionMode", () => {
     const ref = createRef<FabricCanvasHandle>();
