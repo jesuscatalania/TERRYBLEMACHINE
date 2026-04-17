@@ -1,4 +1,4 @@
-import { Download, Image as ImageIcon, Plus, Sparkles, Type } from "lucide-react";
+import { Brush, Download, Image as ImageIcon, Plus, Sparkles, Type } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import {
   ExportDialog,
@@ -14,7 +14,7 @@ import { LayerList } from "@/components/graphic2d/LayerList";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Input } from "@/components/ui/Input";
-import { generateVariants, type ImageResult } from "@/lib/imageCommands";
+import { generateVariants, type ImageResult, inpaintImage, isDataUrl } from "@/lib/imageCommands";
 import { useUiStore } from "@/stores/uiStore";
 
 export function Graphic2DPage() {
@@ -28,6 +28,10 @@ export function Graphic2DPage() {
   const [filter, setFilter] = useState<
     "blur" | "sharpen" | "brightness" | "contrast" | "saturation"
   >("blur");
+  const [maskMode, setMaskMode] = useState(false);
+  const [inpaintPromptOpen, setInpaintPromptOpen] = useState(false);
+  const [inpaintPrompt, setInpaintPrompt] = useState("");
+  const [inpaintBusy, setInpaintBusy] = useState(false);
   const notify = useUiStore((s) => s.notify);
 
   async function generate() {
@@ -74,6 +78,94 @@ export function Graphic2DPage() {
   function applyFilter(intensity: number) {
     if (!selectedId) return;
     canvasRef.current?.applyFilter(selectedId, filter, intensity);
+  }
+
+  function startInpaint() {
+    const handle = canvasRef.current;
+    if (!handle) return;
+    handle.enterMaskMode();
+    setMaskMode(true);
+  }
+
+  function cancelInpaint() {
+    const handle = canvasRef.current;
+    if (!handle) return;
+    handle.exitMaskMode();
+    handle.clearMask();
+    setMaskMode(false);
+    setInpaintPromptOpen(false);
+    setInpaintPrompt("");
+  }
+
+  function requestInpaintPrompt() {
+    const handle = canvasRef.current;
+    if (!handle) return;
+    if (!handle.hasMask()) {
+      notify({
+        kind: "warning",
+        message: "Draw a mask first",
+        detail: "Paint over the region you want to regenerate.",
+      });
+      return;
+    }
+    handle.exitMaskMode();
+    setMaskMode(false);
+    setInpaintPromptOpen(true);
+  }
+
+  async function submitInpaint() {
+    const handle = canvasRef.current;
+    if (!handle) return;
+    const prompt = inpaintPrompt.trim();
+    if (!prompt) {
+      notify({ kind: "warning", message: "Enter a prompt describing the change" });
+      return;
+    }
+    const sourceUrl = handle.getFirstImageUrl();
+    if (!sourceUrl) {
+      notify({
+        kind: "error",
+        message: "No source image",
+        detail: "Add an image layer before inpainting.",
+      });
+      return;
+    }
+    const maskUrl = handle.getMaskDataUrl();
+    // fal.ai flux-fill cannot ingest data-URLs — see pipeline.rs TODO.
+    // The mask is produced as a data-URL from the canvas, and in most
+    // flows the source image layer is also a remote URL (variant picker)
+    // but can be anything. We bail early with a clear message.
+    if (isDataUrl(sourceUrl) || isDataUrl(maskUrl)) {
+      notify({
+        kind: "error",
+        message: "Inpainting requires hosted URLs",
+        detail:
+          "fal.ai's flux-fill endpoint doesn't accept data-URLs yet. Upload pipeline deferred to Phase 5.",
+      });
+      return;
+    }
+    setInpaintBusy(true);
+    try {
+      const result = await inpaintImage({
+        prompt,
+        source_url: sourceUrl,
+        mask_url: maskUrl,
+        module: "graphic2d",
+      });
+      await handle.addImageFromUrl(result.url);
+      notify({ kind: "success", message: "Inpaint applied", detail: result.model });
+      handle.clearMask();
+      setInpaintPromptOpen(false);
+      setInpaintPrompt("");
+    } catch (err) {
+      notify({
+        kind: "error",
+        message: "Inpaint failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setInpaintBusy(false);
+    }
   }
 
   const handleExport = useCallback((settings: ExportSettings) => {
@@ -172,6 +264,38 @@ export function Graphic2DPage() {
 
           <div className="mt-2 flex flex-col gap-2">
             <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
+              Inpaint
+            </span>
+            {maskMode ? (
+              <div className="flex gap-1">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={requestInpaintPrompt}
+                  disabled={inpaintBusy}
+                >
+                  Apply
+                </Button>
+                <Button variant="secondary" size="sm" onClick={cancelInpaint}>
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={startInpaint}
+                disabled={layers.length === 0 || inpaintBusy}
+                aria-label="Start inpaint: draw mask"
+              >
+                <Brush className="h-3 w-3" strokeWidth={1.5} />
+                Draw mask
+              </Button>
+            )}
+          </div>
+
+          <div className="mt-2 flex flex-col gap-2">
+            <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
               Filter
             </span>
             <Dropdown
@@ -253,6 +377,40 @@ export function Graphic2DPage() {
         onClose={() => setExportOpen(false)}
         onExport={handleExport}
       />
+
+      {inpaintPromptOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-dark-950/80 p-4">
+          <div className="w-full max-w-md rounded-xs border border-neutral-dark-700 bg-neutral-dark-900 p-5">
+            <div className="mb-4 flex items-center gap-2">
+              <Brush className="h-3 w-3 text-accent-500" strokeWidth={1.5} />
+              <span className="font-mono text-2xs text-accent-500 uppercase tracking-label-wide">
+                Inpaint · Describe change
+              </span>
+            </div>
+            <Input
+              id="inpaint-prompt"
+              label="Prompt"
+              placeholder="replace with flowers, same lighting"
+              value={inpaintPrompt}
+              onValueChange={setInpaintPrompt}
+              autoFocus
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="secondary" size="sm" onClick={cancelInpaint} disabled={inpaintBusy}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={submitInpaint}
+                disabled={!inpaintPrompt.trim() || inpaintBusy}
+              >
+                {inpaintBusy ? "Applying…" : "Apply inpaint"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

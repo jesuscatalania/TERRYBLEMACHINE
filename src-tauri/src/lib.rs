@@ -144,6 +144,7 @@ pub fn run() {
             image_pipeline::commands::image_to_image,
             image_pipeline::commands::upscale_image,
             image_pipeline::commands::generate_variants,
+            image_pipeline::commands::inpaint_image,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

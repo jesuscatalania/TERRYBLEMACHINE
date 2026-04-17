@@ -30,6 +30,26 @@ export interface FabricCanvasHandle {
   toJpeg: (quality: number) => string;
   toWebp: (quality: number) => string;
   toSvg: () => string;
+  /** Enter free-drawing mode — pointer strokes become mask paths. */
+  enterMaskMode: () => void;
+  /** Exit free-drawing mode. Does not remove existing mask strokes. */
+  exitMaskMode: () => void;
+  /** True if at least one mask stroke exists on the canvas. */
+  hasMask: () => boolean;
+  /** Remove every mask stroke from the canvas. */
+  clearMask: () => void;
+  /**
+   * Export only the mask layer as a PNG data-URL: white strokes on
+   * pure black, same dimensions as the canvas. Non-mask objects are
+   * hidden during the export and restored afterwards.
+   */
+  getMaskDataUrl: () => string;
+  /**
+   * URL of the first image layer on the canvas (usually the source image
+   * for inpaint) or null if none exists. Used by the Inpaint flow to
+   * detect data-URL sources that fal.ai cannot ingest.
+   */
+  getFirstImageUrl: () => string | null;
 }
 
 export interface FabricCanvasProps {
@@ -48,6 +68,7 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
     const canvasElRef = useRef<HTMLCanvasElement | null>(null);
     const canvasRef = useRef<fabric.Canvas | null>(null);
     const layersRef = useRef<FabricLayer[]>([]);
+    const maskModeRef = useRef(false);
     const onLayersChangeRef = useRef(onLayersChange);
     const onSelectionChangeRef = useRef(onSelectionChange);
     const initialSizeRef = useRef({ width, height });
@@ -68,6 +89,16 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
       c.on("selection:created", (e) => onSelectionChangeRef.current?.(objId(e.selected?.[0])));
       c.on("selection:updated", (e) => onSelectionChangeRef.current?.(objId(e.selected?.[0])));
       c.on("selection:cleared", () => onSelectionChangeRef.current?.(null));
+
+      // Tag paths drawn while in mask mode so we can isolate / clear them.
+      c.on("path:created", (e: unknown) => {
+        const path = (e as { path?: fabric.Object }).path;
+        if (maskModeRef.current && path) {
+          (path as unknown as { __mask: boolean }).__mask = true;
+          path.selectable = false;
+          path.evented = false;
+        }
+      });
 
       return () => {
         c.dispose();
@@ -110,7 +141,10 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
           );
           img.scale(scale);
           const id = newId("img");
-          (img as unknown as { data: { id: string } }).data = { id };
+          (img as unknown as { data: { id: string; sourceUrl: string } }).data = {
+            id,
+            sourceUrl: url,
+          };
           c.add(img);
           c.setActiveObject(img);
           c.requestRenderAll();
@@ -226,6 +260,71 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
         },
         toSvg() {
           return canvasRef.current?.toSVG() ?? "";
+        },
+        enterMaskMode() {
+          const c = canvasRef.current;
+          if (!c) return;
+          const brush = new fabric.PencilBrush(c);
+          brush.color = "rgba(255,255,255,0.85)";
+          brush.width = 40;
+          c.freeDrawingBrush = brush;
+          c.isDrawingMode = true;
+          c.discardActiveObject();
+          maskModeRef.current = true;
+        },
+        exitMaskMode() {
+          const c = canvasRef.current;
+          if (!c) return;
+          c.isDrawingMode = false;
+          maskModeRef.current = false;
+        },
+        hasMask() {
+          const c = canvasRef.current;
+          if (!c) return false;
+          return c.getObjects().some((o) => (o as unknown as { __mask?: boolean }).__mask === true);
+        },
+        clearMask() {
+          const c = canvasRef.current;
+          if (!c) return;
+          for (const o of c.getObjects()) {
+            if ((o as unknown as { __mask?: boolean }).__mask === true) {
+              c.remove(o);
+            }
+          }
+          c.requestRenderAll();
+        },
+        getMaskDataUrl() {
+          const c = canvasRef.current;
+          if (!c) return "";
+          // Hide every non-mask object, paint the background pure black, export,
+          // then restore the previous visibility + background.
+          const originals: Array<{ obj: fabric.Object; vis: boolean }> = [];
+          for (const obj of c.getObjects()) {
+            const isMask = (obj as unknown as { __mask?: boolean }).__mask === true;
+            originals.push({ obj, vis: obj.visible ?? true });
+            obj.visible = isMask;
+          }
+          const prevBg = c.backgroundColor;
+          c.backgroundColor = "#000000";
+          c.requestRenderAll();
+          const url = c.toDataURL({ format: "png", multiplier: 1 });
+          for (const { obj, vis } of originals) {
+            obj.visible = vis;
+          }
+          c.backgroundColor = prevBg;
+          c.requestRenderAll();
+          return url;
+        },
+        getFirstImageUrl() {
+          const c = canvasRef.current;
+          if (!c) return null;
+          for (const o of c.getObjects()) {
+            if (o instanceof fabric.FabricImage) {
+              const data = (o as unknown as { data?: { sourceUrl?: string } }).data;
+              if (data?.sourceUrl) return data.sourceUrl;
+            }
+          }
+          return null;
         },
       }),
       [],

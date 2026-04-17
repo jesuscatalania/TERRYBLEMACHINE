@@ -30,6 +30,14 @@ export interface UpscaleInput {
   scale?: number;
 }
 
+export interface InpaintInput {
+  prompt: string;
+  source_url: string;
+  mask_url: string;
+  complexity?: Complexity;
+  module?: string;
+}
+
 export function textToImage(input: Text2ImageInput): Promise<ImageResult> {
   return invoke<ImageResult>("text_to_image", { input });
 }
@@ -44,4 +52,18 @@ export function upscaleImage(input: UpscaleInput): Promise<ImageResult> {
 
 export function generateVariants(input: GenerateVariantsInput): Promise<ImageResult[]> {
   return invoke<ImageResult[]>("generate_variants", { input });
+}
+
+export function inpaintImage(input: InpaintInput): Promise<ImageResult> {
+  return invoke<ImageResult>("inpaint_image", { input });
+}
+
+/**
+ * Returns true if the given string looks like a `data:` URL. fal.ai's
+ * flux-fill endpoint requires publicly-hosted URLs; data-URLs from the
+ * canvas must be rejected at the UI layer until the Phase 5 upload shim
+ * ships.
+ */
+export function isDataUrl(url: string): boolean {
+  return /^data:/i.test(url.trim());
 }

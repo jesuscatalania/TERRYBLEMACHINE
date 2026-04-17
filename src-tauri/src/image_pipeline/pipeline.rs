@@ -17,7 +17,7 @@ use crate::taste_engine::{EnrichOptions, TasteEngine};
 
 use super::types::{
     GenerateVariantsInput, Image2ImageInput, ImagePipeline, ImagePipelineError, ImageResult,
-    Text2ImageInput, UpscaleInput,
+    InpaintInput, Text2ImageInput, UpscaleInput,
 };
 
 pub struct RouterImagePipeline {
@@ -226,5 +226,36 @@ impl ImagePipeline for RouterImagePipeline {
             return Err(ImagePipelineError::AllVariantsFailed(n as u32));
         }
         Ok(out)
+    }
+
+    async fn inpaint(&self, input: InpaintInput) -> Result<ImageResult, ImagePipelineError> {
+        // TODO(phase-5): KNOWN LIMITATION — fal.ai flux-fill requires
+        // publicly-hosted URLs for both `image_url` and `mask_url`. Data-URLs
+        // produced by the frontend canvas will fail at the provider layer
+        // with a Permanent error. A local upload shim (serving data-URLs via
+        // a short-lived localhost HTTP server, or uploading to fal.ai's
+        // temporary storage endpoint) is planned for Phase 5. Until then,
+        // the frontend should guard against data-URL inputs and surface a
+        // clear error to the user.
+        if input.prompt.trim().is_empty() {
+            return Err(ImagePipelineError::InvalidInput("empty prompt".into()));
+        }
+        if input.source_url.trim().is_empty() || input.mask_url.trim().is_empty() {
+            return Err(ImagePipelineError::InvalidInput(
+                "source_url and mask_url required".into(),
+            ));
+        }
+        let prompt = self.enrich(&input.prompt, &input.module).await;
+        let req = new_request(
+            TaskKind::Inpaint,
+            input.complexity,
+            prompt,
+            json!({
+                "image_url": input.source_url,
+                "mask_url": input.mask_url,
+            }),
+        );
+        let resp = self.dispatch(req).await?;
+        response_to_result(resp)
     }
 }

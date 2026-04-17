@@ -47,6 +47,23 @@ pub struct GenerateVariantsInput {
     pub module: String,
 }
 
+/// Inpainting: replace the masked region of `source_url` with content
+/// generated from `prompt`. The mask is a same-size image where opaque
+/// (white) pixels mark the region to regenerate.
+#[derive(Debug, Clone, Deserialize)]
+pub struct InpaintInput {
+    pub prompt: String,
+    /// URL (or `file://…`) pointing at the source image. fal.ai flux-fill
+    /// requires a publicly-hosted URL; data-URLs will fail at the provider.
+    pub source_url: String,
+    /// URL pointing at a same-size mask image (white = repaint region).
+    pub mask_url: String,
+    #[serde(default = "default_complexity")]
+    pub complexity: Complexity,
+    #[serde(default = "default_module")]
+    pub module: String,
+}
+
 fn default_complexity() -> Complexity {
     Complexity::Medium
 }
@@ -110,4 +127,5 @@ pub trait ImagePipeline: Send + Sync {
         &self,
         input: GenerateVariantsInput,
     ) -> Result<Vec<ImageResult>, ImagePipelineError>;
+    async fn inpaint(&self, input: InpaintInput) -> Result<ImageResult, ImagePipelineError>;
 }

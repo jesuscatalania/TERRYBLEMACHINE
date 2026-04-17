@@ -23,5 +23,5 @@ pub use pipeline::RouterImagePipeline;
 pub use stub::StubImagePipeline;
 pub use types::{
     GenerateVariantsInput, Image2ImageInput, ImagePipeline, ImagePipelineError, ImageResult,
-    Text2ImageInput, UpscaleInput,
+    InpaintInput, Text2ImageInput, UpscaleInput,
 };

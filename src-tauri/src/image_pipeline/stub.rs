@@ -7,7 +7,7 @@ use async_trait::async_trait;
 
 use super::types::{
     GenerateVariantsInput, Image2ImageInput, ImagePipeline, ImagePipelineError, ImageResult,
-    Text2ImageInput, UpscaleInput,
+    InpaintInput, Text2ImageInput, UpscaleInput,
 };
 
 #[derive(Default)]
@@ -119,6 +119,22 @@ impl ImagePipeline for StubImagePipeline {
         Ok((0..n)
             .map(|i| fake_result(&input.prompt, 100 + i as u64))
             .collect())
+    }
+
+    async fn inpaint(&self, input: InpaintInput) -> Result<ImageResult, ImagePipelineError> {
+        self.check_forced()?;
+        self.record("inpaint");
+        if input.prompt.trim().is_empty() {
+            return Err(ImagePipelineError::InvalidInput("empty prompt".into()));
+        }
+        if input.source_url.trim().is_empty() || input.mask_url.trim().is_empty() {
+            return Err(ImagePipelineError::InvalidInput(
+                "source_url and mask_url required".into(),
+            ));
+        }
+        let mut r = fake_result(&input.prompt, 4);
+        r.model = "StubFluxFill".into();
+        Ok(r)
     }
 }
 

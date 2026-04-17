@@ -7,7 +7,7 @@ use tauri::State;
 
 use super::types::{
     GenerateVariantsInput, Image2ImageInput, ImagePipeline, ImagePipelineError, ImageResult,
-    Text2ImageInput, UpscaleInput,
+    InpaintInput, Text2ImageInput, UpscaleInput,
 };
 
 pub struct ImagePipelineState(pub Arc<dyn ImagePipeline>);
@@ -68,4 +68,12 @@ pub async fn generate_variants(
     state: State<'_, ImagePipelineState>,
 ) -> Result<Vec<ImageResult>, ImagePipelineIpcError> {
     state.0.variants(input).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn inpaint_image(
+    input: InpaintInput,
+    state: State<'_, ImagePipelineState>,
+) -> Result<ImageResult, ImagePipelineIpcError> {
+    state.0.inpaint(input).await.map_err(Into::into)
 }

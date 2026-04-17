@@ -17,8 +17,8 @@ use terryblemachine_lib::ai_router::{
     PriorityQueue, Provider, ProviderError, ProviderUsage, RetryPolicy,
 };
 use terryblemachine_lib::image_pipeline::{
-    GenerateVariantsInput, Image2ImageInput, ImagePipeline, RouterImagePipeline, Text2ImageInput,
-    UpscaleInput,
+    GenerateVariantsInput, Image2ImageInput, ImagePipeline, InpaintInput, RouterImagePipeline,
+    Text2ImageInput, UpscaleInput,
 };
 
 /// Fake AiClient that always succeeds and returns a fal.ai-shaped payload
@@ -146,6 +146,44 @@ async fn upscale_returns_result() {
     assert!(!result.url.is_empty());
     // Upscale routes to FalRealEsrgan.
     assert_eq!(result.model, format!("{:?}", Model::FalRealEsrgan));
+}
+
+#[tokio::test]
+async fn inpaint_routes_to_fal_flux_fill() {
+    let pipeline = build_pipeline();
+    let result = pipeline
+        .inpaint(InpaintInput {
+            prompt: "replace with flowers".into(),
+            source_url: "https://fake.fal/src.png".into(),
+            mask_url: "https://fake.fal/mask.png".into(),
+            complexity: Complexity::Medium,
+            module: "graphic2d".into(),
+        })
+        .await
+        .expect("inpaint succeeds");
+
+    assert!(result.url.starts_with("https://fake.fal/"));
+    // Inpaint is hard-wired to FalFluxFill in the default strategy.
+    assert_eq!(result.model, format!("{:?}", Model::FalFluxFill));
+}
+
+#[tokio::test]
+async fn inpaint_rejects_empty_prompt() {
+    let pipeline = build_pipeline();
+    let err = pipeline
+        .inpaint(InpaintInput {
+            prompt: "  ".into(),
+            source_url: "https://fake.fal/src.png".into(),
+            mask_url: "https://fake.fal/mask.png".into(),
+            complexity: Complexity::Medium,
+            module: "graphic2d".into(),
+        })
+        .await
+        .expect_err("empty prompt must be rejected");
+    assert!(
+        format!("{err:?}").contains("InvalidInput"),
+        "expected InvalidInput, got {err:?}"
+    );
 }
 
 #[tokio::test]
