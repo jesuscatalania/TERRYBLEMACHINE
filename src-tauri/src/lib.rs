@@ -138,6 +138,7 @@ pub fn run() {
             taste_engine::commands::get_negative_prompt,
             website_analyzer::commands::analyze_url,
             code_generator::commands::generate_website,
+            code_generator::assist::modify_code_selection,
             exporter::commands::export_website,
             image_pipeline::commands::text_to_image,
             image_pipeline::commands::image_to_image,

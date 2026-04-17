@@ -11,6 +11,7 @@
 //! [`Template`], (c) optional `AnalysisResult` from a reference URL, and
 //! (d) the live `meingeschmack/` taste profile when available.
 
+pub mod assist;
 mod claude;
 pub mod commands;
 mod prompt;
@@ -18,6 +19,7 @@ mod stub;
 mod templates;
 mod types;
 
+pub use assist::{modify_code_selection, ModifyRequest, ModifyResponse};
 pub use claude::ClaudeCodeGenerator;
 pub use prompt::build_prompt;
 pub use stub::StubCodeGenerator;

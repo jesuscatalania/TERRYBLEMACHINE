@@ -72,3 +72,22 @@ export function generateWebsite(input: GenerationInput): Promise<GeneratedProjec
 export function exportWebsite(request: ExportRequest): Promise<string> {
   return invoke<string>("export_website", { request });
 }
+
+// ─── Inline code-assist (Cmd+K selection → replacement) ────────────────
+
+export interface ModifyCodeSelectionInput {
+  files: GeneratedFile[];
+  file_path: string;
+  selection: string;
+  instruction: string;
+}
+
+export interface ModifyCodeSelectionOutput {
+  replacement: string;
+}
+
+export function modifyCodeSelection(
+  req: ModifyCodeSelectionInput,
+): Promise<ModifyCodeSelectionOutput> {
+  return invoke<ModifyCodeSelectionOutput>("modify_code_selection", { req });
+}

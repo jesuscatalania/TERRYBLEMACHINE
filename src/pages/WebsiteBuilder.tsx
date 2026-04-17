@@ -11,6 +11,7 @@ import {
   type GeneratedFile,
   type GeneratedProject,
   generateWebsite,
+  modifyCodeSelection,
   type Template,
 } from "@/lib/websiteCommands";
 import { useProjectStore } from "@/stores/projectStore";
@@ -88,6 +89,24 @@ export function WebsiteBuilderPage() {
     setProject({ ...project, files: next });
   }
 
+  async function handleAssist(input: {
+    filePath: string;
+    selection: string;
+    instruction: string;
+    files: GeneratedFile[];
+  }): Promise<string> {
+    const { replacement } = await modifyCodeSelection({
+      files: input.files,
+      file_path: input.filePath,
+      selection: input.selection,
+      instruction: input.instruction,
+    });
+    if (!replacement.trim()) {
+      throw new Error("Assist returned empty replacement");
+    }
+    return replacement;
+  }
+
   return (
     <div className="grid h-full grid-rows-[auto_1fr]">
       {/* Brief row */}
@@ -157,7 +176,12 @@ export function WebsiteBuilderPage() {
       <div className="grid min-h-0 grid-cols-2">
         <div className="flex h-full min-h-0 flex-col border-neutral-dark-700 border-r">
           {project ? (
-            <CodeEditor files={project.files} onChange={updateFiles} />
+            <CodeEditor
+              files={project.files}
+              onChange={updateFiles}
+              onRequestAssist={handleAssist}
+              onNotify={(message) => notify({ kind: "info", message })}
+            />
           ) : (
             <div className="flex h-full items-center justify-center p-10 text-center text-neutral-dark-400">
               Nothing generated yet.
