@@ -21,7 +21,7 @@ use image_pipeline::{ImagePipeline, RouterImagePipeline};
 use keychain::commands::KeyStoreState;
 use projects::commands::{resolve_default_root, ProjectStoreState};
 use taste_engine::commands::TasteEngineState;
-use taste_engine::{StubVisionAnalyzer, TasteEngine};
+use taste_engine::{ClaudeVisionAnalyzer, TasteEngine};
 use website_analyzer::commands::WebsiteAnalyzerState;
 use website_analyzer::{PlaywrightUrlAnalyzer, UrlAnalyzer};
 
@@ -54,16 +54,37 @@ pub fn run() {
             app.manage(ProjectStoreState::new(root));
 
             // Taste engine scoped to the workspace-local meingeschmack/.
-            // Uses a stub vision analyzer for now — Claude Vision wiring
-            // follows when modules actually ship image analysis.
+            // Reference images are routed through the production
+            // ClaudeVisionAnalyzer so the live profile reflects the user's
+            // actual moodboard, not deterministic stubs.
             let meingeschmack_root = std::env::current_dir()
                 .unwrap_or_else(|_| std::path::PathBuf::from("."))
                 .join("meingeschmack");
             let engine = Arc::new(TasteEngine::new(
-                meingeschmack_root,
-                Arc::new(StubVisionAnalyzer::new()),
+                meingeschmack_root.clone(),
+                Arc::new(ClaudeVisionAnalyzer::new(Arc::clone(&ai_router_for_setup))),
             ));
             app.manage(TasteEngineState::new(Arc::clone(&engine)));
+
+            // Watcher loop: on any meingeschmack/ change, re-parse rules and
+            // re-run image analyses so generative prompts always see a fresh
+            // StyleProfile. The task terminates cleanly once the engine Arc
+            // is dropped and the channel senders are released.
+            let watch_engine = Arc::clone(&engine);
+            let watch_root = meingeschmack_root.clone();
+            tauri::async_runtime::spawn(async move {
+                match taste_engine::watcher::TasteWatcher::new(watch_root) {
+                    Ok(mut w) => loop {
+                        if w.next_event().await.is_none() {
+                            break;
+                        }
+                        if let Err(e) = watch_engine.refresh().await {
+                            eprintln!("[taste-engine] refresh failed: {e}");
+                        }
+                    },
+                    Err(e) => eprintln!("[taste-engine] watcher init failed: {e}"),
+                }
+            });
 
             // Website analyzer sidecar — expects scripts/url_analyzer.mjs
             // in the app's working directory + `node` on PATH.
