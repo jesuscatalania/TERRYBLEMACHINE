@@ -4,12 +4,14 @@
 //! Three output formats are supported:
 //! - [`ExportFormat::Raw`] — files exactly as the generator produced them.
 //! - [`ExportFormat::React`] — the generator output is placed under `src/`
-//!   with a minimal `package.json` + Vite config at the root.
+//!   with a Vite + React + Tailwind scaffold (entry, App, PostCSS) at the
+//!   project root so the archive is buildable with `pnpm install && pnpm build`.
 //! - [`ExportFormat::NextJs`] — generator output is placed under `app/`,
-//!   with a minimal Next.js `package.json` + `next.config.mjs`.
+//!   alongside a Next.js App-Router scaffold (`layout.tsx`, `page.tsx`,
+//!   `globals.css`) and matching `package.json` / `next.config.mjs`.
 //!
-//! The more opinionated bundles (Vercel/Netlify deploy configs) will layer
-//! on top in follow-up steps.
+//! An optional [`DeployTarget`] layers `vercel.json` or `netlify.toml` on
+//! top of any of the three formats.
 
 use std::fs::File;
 use std::io::Write;
@@ -31,6 +33,16 @@ pub enum ExportFormat {
     NextJs,
 }
 
+/// Optional hosting provider config to emit alongside the scaffold. Both
+/// targets assume a Vite-style `dist/` build output and `pnpm build` as the
+/// command; downstream users can edit the config for their setup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DeployTarget {
+    Vercel,
+    Netlify,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExportRequest {
     pub project: GeneratedProject,
@@ -39,6 +51,10 @@ pub struct ExportRequest {
     /// Directory to write the `.zip` into. The filename is derived from the
     /// first index.html / first file path.
     pub destination: PathBuf,
+    /// Optional deploy target — when set, a `vercel.json` or `netlify.toml`
+    /// is added at the archive root regardless of scaffold kind.
+    #[serde(default)]
+    pub deploy: Option<DeployTarget>,
 }
 
 #[derive(Debug, Error)]
@@ -85,6 +101,14 @@ pub fn export_to_zip(req: &ExportRequest) -> Result<PathBuf, ExportError> {
                 write_entry(&mut zip, Path::new(path), content, options)?;
             }
         }
+    }
+
+    // Optional deploy config — orthogonal to the scaffold kind. Vercel/Netlify
+    // sit at the archive root so a `vercel --prod` or Netlify drop-to-deploy
+    // picks them up without further configuration.
+    if let Some(target) = req.deploy {
+        let (path, content) = deploy_config(target);
+        write_entry(&mut zip, Path::new(path), content, options)?;
     }
 
     zip.finish()?;
@@ -173,6 +197,9 @@ fn react_scaffold() -> Vec<(&'static str, &'static str)> {
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.4.0",
     "vite": "^6.0.0"
   }
 }
@@ -181,6 +208,30 @@ fn react_scaffold() -> Vec<(&'static str, &'static str)> {
         (
             "vite.config.js",
             "import react from '@vitejs/plugin-react';\nimport { defineConfig } from 'vite';\n\nexport default defineConfig({ plugins: [react()] });\n",
+        ),
+        (
+            "index.html",
+            "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"UTF-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n    <title>Exported from TERRYBLEMACHINE</title>\n  </head>\n  <body>\n    <div id=\"root\"></div>\n    <script type=\"module\" src=\"/src/main.jsx\"></script>\n  </body>\n</html>\n",
+        ),
+        (
+            "src/main.jsx",
+            "import React from \"react\";\nimport ReactDOM from \"react-dom/client\";\nimport App from \"./App.jsx\";\nimport \"./index.css\";\n\nReactDOM.createRoot(document.getElementById(\"root\")).render(<App />);\n",
+        ),
+        (
+            "src/App.jsx",
+            "export default function App() {\n  return (\n    <div className=\"p-8\">\n      <h1 className=\"text-3xl\">Exported from TERRYBLEMACHINE</h1>\n      <p>Generated files live alongside this scaffold.</p>\n    </div>\n  );\n}\n",
+        ),
+        (
+            "src/index.css",
+            "@tailwind base;\n@tailwind components;\n@tailwind utilities;\n",
+        ),
+        (
+            "tailwind.config.js",
+            "export default {\n  content: [\"./index.html\", \"./src/**/*.{js,jsx,ts,tsx}\"],\n  theme: { extend: {} },\n  plugins: [],\n};\n",
+        ),
+        (
+            "postcss.config.js",
+            "export default { plugins: { tailwindcss: {}, autoprefixer: {} } };\n",
         ),
         (
             "README.md",
@@ -205,6 +256,15 @@ fn nextjs_scaffold() -> Vec<(&'static str, &'static str)> {
     "next": "^15.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.5.0"
   }
 }
 "#,
@@ -214,10 +274,43 @@ fn nextjs_scaffold() -> Vec<(&'static str, &'static str)> {
             "/** @type {import('next').NextConfig} */\nconst nextConfig = {};\nexport default nextConfig;\n",
         ),
         (
+            "app/layout.tsx",
+            "import \"./globals.css\";\nexport default function RootLayout({ children }: { children: React.ReactNode }) {\n  return (\n    <html lang=\"en\">\n      <body>{children}</body>\n    </html>\n  );\n}\n",
+        ),
+        (
+            "app/page.tsx",
+            "export default function Page() {\n  return (\n    <main className=\"p-8\">\n      <h1 className=\"text-3xl\">Exported from TERRYBLEMACHINE</h1>\n      <p>\n        Generated files live under <code>app/</code>.\n      </p>\n    </main>\n  );\n}\n",
+        ),
+        (
+            "app/globals.css",
+            "@tailwind base;\n@tailwind components;\n@tailwind utilities;\n",
+        ),
+        (
+            "tailwind.config.ts",
+            "import type { Config } from \"tailwindcss\";\nconst config: Config = {\n  content: [\"./app/**/*.{js,ts,jsx,tsx}\"],\n  theme: { extend: {} },\n  plugins: [],\n};\nexport default config;\n",
+        ),
+        (
+            "postcss.config.js",
+            "export default { plugins: { tailwindcss: {}, autoprefixer: {} } };\n",
+        ),
+        (
             "README.md",
             "# Exported from TERRYBLEMACHINE (Next.js)\n\n```sh\npnpm install\npnpm dev\n```\n",
         ),
     ]
+}
+
+fn deploy_config(target: DeployTarget) -> (&'static str, &'static str) {
+    match target {
+        DeployTarget::Vercel => (
+            "vercel.json",
+            "{ \"framework\": \"vite\", \"buildCommand\": \"pnpm build\", \"outputDirectory\": \"dist\" }\n",
+        ),
+        DeployTarget::Netlify => (
+            "netlify.toml",
+            "[build]\n  command = \"pnpm build\"\n  publish = \"dist\"\n",
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -269,6 +362,7 @@ mod tests {
             project: sample_project(),
             format: ExportFormat::Raw,
             destination: tmp.path().to_path_buf(),
+            deploy: None,
         };
         let path = export_to_zip(&req).unwrap();
         assert!(path.exists());
@@ -285,14 +379,45 @@ mod tests {
             project: sample_project(),
             format: ExportFormat::React,
             destination: tmp.path().to_path_buf(),
+            deploy: None,
         };
         let path = export_to_zip(&req).unwrap();
         let files = entries(&path);
+        // Generator output is placed under src/.
         assert!(files.contains(&"src/index.html".to_string()));
+        // Scaffold artefacts sit at the root.
         assert!(files.contains(&"package.json".to_string()));
         assert!(files.contains(&"vite.config.js".to_string()));
         let pkg = read_entry(&path, "package.json");
         assert!(pkg.contains("react"));
+    }
+
+    #[test]
+    fn react_scaffold_contains_entry_html_and_main_jsx() {
+        let tmp = TempDir::new().unwrap();
+        let req = ExportRequest {
+            project: sample_project(),
+            format: ExportFormat::React,
+            destination: tmp.path().to_path_buf(),
+            deploy: None,
+        };
+        let path = export_to_zip(&req).unwrap();
+        let files = entries(&path);
+        // The root index.html from the scaffold (not the generator's copy
+        // under src/) is what Vite picks up.
+        assert!(files.contains(&"index.html".to_string()));
+        assert!(files.contains(&"src/main.jsx".to_string()));
+        assert!(files.contains(&"src/App.jsx".to_string()));
+        assert!(files.contains(&"src/index.css".to_string()));
+        assert!(files.contains(&"tailwind.config.js".to_string()));
+        assert!(files.contains(&"postcss.config.js".to_string()));
+
+        let pkg = read_entry(&path, "package.json");
+        assert!(pkg.contains("tailwindcss"));
+        assert!(pkg.contains("autoprefixer"));
+
+        let main = read_entry(&path, "src/main.jsx");
+        assert!(main.contains("createRoot"));
     }
 
     #[test]
@@ -302,11 +427,88 @@ mod tests {
             project: sample_project(),
             format: ExportFormat::NextJs,
             destination: tmp.path().to_path_buf(),
+            deploy: None,
         };
         let path = export_to_zip(&req).unwrap();
         let files = entries(&path);
         assert!(files.contains(&"app/index.html".to_string()));
         assert!(files.contains(&"next.config.mjs".to_string()));
+    }
+
+    #[test]
+    fn nextjs_scaffold_contains_layout_and_page() {
+        let tmp = TempDir::new().unwrap();
+        let req = ExportRequest {
+            project: sample_project(),
+            format: ExportFormat::NextJs,
+            destination: tmp.path().to_path_buf(),
+            deploy: None,
+        };
+        let path = export_to_zip(&req).unwrap();
+        let files = entries(&path);
+        assert!(files.contains(&"app/layout.tsx".to_string()));
+        assert!(files.contains(&"app/page.tsx".to_string()));
+        assert!(files.contains(&"app/globals.css".to_string()));
+        assert!(files.contains(&"tailwind.config.ts".to_string()));
+
+        let pkg = read_entry(&path, "package.json");
+        assert!(pkg.contains("tailwindcss"));
+        assert!(pkg.contains("autoprefixer"));
+
+        let layout = read_entry(&path, "app/layout.tsx");
+        assert!(layout.contains("RootLayout"));
+        assert!(layout.contains("./globals.css"));
+    }
+
+    #[test]
+    fn vercel_config_present_when_requested() {
+        let tmp = TempDir::new().unwrap();
+        let req = ExportRequest {
+            project: sample_project(),
+            format: ExportFormat::Raw,
+            destination: tmp.path().to_path_buf(),
+            deploy: Some(DeployTarget::Vercel),
+        };
+        let path = export_to_zip(&req).unwrap();
+        let files = entries(&path);
+        assert!(files.contains(&"vercel.json".to_string()));
+        assert!(!files.contains(&"netlify.toml".to_string()));
+        let cfg = read_entry(&path, "vercel.json");
+        assert!(cfg.contains("\"framework\": \"vite\""));
+        assert!(cfg.contains("\"outputDirectory\": \"dist\""));
+    }
+
+    #[test]
+    fn netlify_config_present_when_requested() {
+        let tmp = TempDir::new().unwrap();
+        let req = ExportRequest {
+            project: sample_project(),
+            format: ExportFormat::React,
+            destination: tmp.path().to_path_buf(),
+            deploy: Some(DeployTarget::Netlify),
+        };
+        let path = export_to_zip(&req).unwrap();
+        let files = entries(&path);
+        assert!(files.contains(&"netlify.toml".to_string()));
+        assert!(!files.contains(&"vercel.json".to_string()));
+        let cfg = read_entry(&path, "netlify.toml");
+        assert!(cfg.contains("[build]"));
+        assert!(cfg.contains("publish = \"dist\""));
+    }
+
+    #[test]
+    fn deploy_config_absent_by_default() {
+        let tmp = TempDir::new().unwrap();
+        let req = ExportRequest {
+            project: sample_project(),
+            format: ExportFormat::Raw,
+            destination: tmp.path().to_path_buf(),
+            deploy: None,
+        };
+        let path = export_to_zip(&req).unwrap();
+        let files = entries(&path);
+        assert!(!files.contains(&"vercel.json".to_string()));
+        assert!(!files.contains(&"netlify.toml".to_string()));
     }
 
     #[test]
@@ -320,6 +522,7 @@ mod tests {
             },
             format: ExportFormat::Raw,
             destination: tmp.path().to_path_buf(),
+            deploy: None,
         };
         let err = export_to_zip(&req).unwrap_err();
         assert!(matches!(err, ExportError::InvalidRequest(_)));
@@ -333,6 +536,7 @@ mod tests {
             project: sample_project(),
             format: ExportFormat::Raw,
             destination: dest.clone(),
+            deploy: None,
         };
         let path = export_to_zip(&req).unwrap();
         assert!(path.starts_with(&dest));

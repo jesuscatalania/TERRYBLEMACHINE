@@ -5,4 +5,4 @@
 pub mod commands;
 mod zip_export;
 
-pub use zip_export::{export_to_zip, ExportError, ExportFormat, ExportRequest};
+pub use zip_export::{export_to_zip, DeployTarget, ExportError, ExportFormat, ExportRequest};

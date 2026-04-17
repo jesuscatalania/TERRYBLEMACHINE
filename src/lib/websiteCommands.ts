@@ -43,11 +43,14 @@ export interface GenerationInput {
 }
 
 export type ExportFormat = "raw" | "react" | "next-js";
+export type DeployTarget = "vercel" | "netlify";
 
 export interface ExportRequest {
   project: GeneratedProject;
   format?: ExportFormat;
   destination: string;
+  /** Optional hosting provider config to bundle (`vercel.json` / `netlify.toml`). */
+  deploy?: DeployTarget;
 }
 
 // ─── Invoke wrappers ───────────────────────────────────────────────────

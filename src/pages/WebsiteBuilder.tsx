@@ -6,8 +6,14 @@ import { Tabs } from "@/components/ui/Tabs";
 import { CodeEditor } from "@/components/website/CodeEditor";
 import { DevicePreview, type DeviceSize } from "@/components/website/DevicePreview";
 import {
+  WebsiteExportDialog,
+  type WebsiteExportSettings,
+} from "@/components/website/WebsiteExportDialog";
+import { projectsRoot } from "@/lib/projectCommands";
+import {
   type AnalysisResult,
   analyzeUrl,
+  exportWebsite,
   type GeneratedFile,
   type GeneratedProject,
   generateWebsite,
@@ -35,6 +41,8 @@ export function WebsiteBuilderPage() {
   const [refUrl, setRefUrl] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const notify = useUiStore((s) => s.notify);
   const currentProject = useProjectStore((s) => s.currentProject);
 
@@ -107,6 +115,34 @@ export function WebsiteBuilderPage() {
     return replacement;
   }
 
+  async function handleExport(settings: WebsiteExportSettings) {
+    if (!project) return;
+    // Close the dialog straight away so the user sees the pending toast land.
+    setExportOpen(false);
+    setExporting(true);
+    try {
+      // Prefer the current project's folder so all exports stay near the
+      // source. If no project is open (the user is in a scratch session),
+      // fall back to the app's projects root.
+      const destination = currentProject ? `${currentProject.path}/export` : await projectsRoot();
+      const written = await exportWebsite({
+        project,
+        format: settings.format,
+        destination,
+        deploy: settings.deploy,
+      });
+      notify({ kind: "success", message: "Exported", detail: written });
+    } catch (err) {
+      notify({
+        kind: "error",
+        message: "Export failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="grid h-full grid-rows-[auto_1fr]">
       {/* Brief row */}
@@ -166,9 +202,18 @@ export function WebsiteBuilderPage() {
           <span className="font-mono text-2xs text-neutral-dark-500 tracking-label uppercase">
             Generated files are editable live in the preview below.
           </span>
-          <Button variant="primary" onClick={submit} disabled={!prompt.trim() || busy}>
-            {busy ? "Generating…" : "Generate"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => setExportOpen(true)}
+              disabled={!project || exporting}
+            >
+              {exporting ? "Exporting…" : "Export"}
+            </Button>
+            <Button variant="primary" onClick={submit} disabled={!prompt.trim() || busy}>
+              {busy ? "Generating…" : "Generate"}
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -220,6 +265,12 @@ export function WebsiteBuilderPage() {
           </div>
         </div>
       </div>
+
+      <WebsiteExportDialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        onExport={handleExport}
+      />
     </div>
   );
 }
