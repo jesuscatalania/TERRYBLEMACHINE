@@ -75,6 +75,11 @@ impl FalClient {
     }
 
     /// The endpoint path for a given supported model.
+    //
+    // Naming note: the `Model::FalFluxPro` variant maps to the fal.ai
+    // endpoint for Flux Pro (marketed as "Flux 1.1 Pro"). The plan doc
+    // uses "Flux 2 Pro" as an aspirational name; when fal.ai ships a v2
+    // endpoint, add the new `Model` variant and a new arm here.
     fn endpoint_for(model: Model) -> Option<&'static str> {
         match model {
             Model::FalFluxPro => Some("/fal-ai/flux-pro"),

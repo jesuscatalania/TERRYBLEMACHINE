@@ -49,12 +49,25 @@ impl RoutingStrategy for DefaultRoutingStrategy {
             (TextGeneration, Simple) => RouteDecision::new(ClaudeHaiku),
 
             // Images — fal.ai is cheaper & faster; complex prompts get Flux Pro.
-            (ImageGeneration, Simple) => RouteDecision::with_fallbacks(FalSdxl, vec![FalFluxPro]),
-            (ImageGeneration, _) => {
+            //
+            // Naming note: `FalFluxPro` is fal.ai's current top-tier image
+            // endpoint (`fal-ai/flux-pro`, also marketed as Flux 1.1 Pro). The
+            // plan document calls it "Flux 2 Pro" — that name does not
+            // currently exist in the fal.ai catalog, so we track the actual
+            // production endpoint. If fal.ai publishes a genuine
+            // `flux-2-pro` later, add `Model::FalFlux2Pro` and swap this
+            // mapping.
+            (ImageGeneration, Simple) => {
+                RouteDecision::with_fallbacks(FalSdxl, vec![FalFluxPro, ReplicateFluxDev])
+            }
+            (ImageGeneration, Medium) => {
+                RouteDecision::with_fallbacks(FalFluxPro, vec![ReplicateFluxDev])
+            }
+            (ImageGeneration, Complex) => {
                 RouteDecision::with_fallbacks(FalFluxPro, vec![ReplicateFluxDev])
             }
 
-            (ImageEdit, _) => RouteDecision::new(FalFluxPro),
+            (ImageEdit, _) => RouteDecision::with_fallbacks(FalFluxPro, vec![ReplicateFluxDev]),
             (Inpaint, _) => RouteDecision::new(FalFluxFill),
             (Upscale, _) => RouteDecision::new(FalRealEsrgan),
 
@@ -156,7 +169,17 @@ mod tests {
     fn image_simple_uses_sdxl() {
         let d = DefaultRoutingStrategy.select(&req(TaskKind::ImageGeneration, Complexity::Simple));
         assert_eq!(d.primary, Model::FalSdxl);
-        assert_eq!(d.fallbacks, vec![Model::FalFluxPro]);
+        assert_eq!(
+            d.fallbacks,
+            vec![Model::FalFluxPro, Model::ReplicateFluxDev]
+        );
+    }
+
+    #[test]
+    fn image_generation_simple_falls_back_to_replicate() {
+        let d = DefaultRoutingStrategy.select(&req(TaskKind::ImageGeneration, Complexity::Simple));
+        assert_eq!(d.primary, Model::FalSdxl);
+        assert!(d.fallbacks.contains(&Model::ReplicateFluxDev));
     }
 
     #[test]
@@ -164,6 +187,20 @@ mod tests {
         let d = DefaultRoutingStrategy.select(&req(TaskKind::ImageGeneration, Complexity::Medium));
         assert_eq!(d.primary, Model::FalFluxPro);
         assert_eq!(d.fallbacks, vec![Model::ReplicateFluxDev]);
+    }
+
+    #[test]
+    fn image_generation_complex_has_replicate_fallback() {
+        let d = DefaultRoutingStrategy.select(&req(TaskKind::ImageGeneration, Complexity::Complex));
+        assert_eq!(d.primary, Model::FalFluxPro);
+        assert!(d.fallbacks.contains(&Model::ReplicateFluxDev));
+    }
+
+    #[test]
+    fn image_edit_falls_back_to_replicate() {
+        let d = DefaultRoutingStrategy.select(&req(TaskKind::ImageEdit, Complexity::Medium));
+        assert_eq!(d.primary, Model::FalFluxPro);
+        assert!(d.fallbacks.contains(&Model::ReplicateFluxDev));
     }
 
     #[test]
