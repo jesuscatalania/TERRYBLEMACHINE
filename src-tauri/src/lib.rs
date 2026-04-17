@@ -3,6 +3,7 @@ pub mod api_clients;
 pub mod keychain;
 pub mod projects;
 pub mod taste_engine;
+pub mod website_analyzer;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -15,6 +16,8 @@ use keychain::commands::KeyStoreState;
 use projects::commands::{resolve_default_root, ProjectStoreState};
 use taste_engine::commands::TasteEngineState;
 use taste_engine::{StubVisionAnalyzer, TasteEngine};
+use website_analyzer::commands::WebsiteAnalyzerState;
+use website_analyzer::{PlaywrightUrlAnalyzer, UrlAnalyzer};
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -52,6 +55,15 @@ pub fn run() {
                 Arc::new(StubVisionAnalyzer::new()),
             ));
             app.manage(TasteEngineState::new(engine));
+
+            // Website analyzer sidecar — expects scripts/url_analyzer.mjs
+            // in the app's working directory + `node` on PATH.
+            let script_path = std::env::current_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                .join("scripts")
+                .join("url_analyzer.mjs");
+            let analyzer: Arc<dyn UrlAnalyzer> = Arc::new(PlaywrightUrlAnalyzer::new(script_path));
+            app.manage(WebsiteAnalyzerState::new(analyzer));
             Ok(())
         })
         .manage(KeyStoreState::new(keystore))
@@ -77,6 +89,7 @@ pub fn run() {
             taste_engine::commands::get_taste_profile,
             taste_engine::commands::enrich_taste_prompt,
             taste_engine::commands::get_negative_prompt,
+            website_analyzer::commands::analyze_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

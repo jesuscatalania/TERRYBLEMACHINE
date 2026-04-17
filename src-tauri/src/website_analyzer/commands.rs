@@ -1,0 +1,59 @@
+//! Tauri IPC command for the website analyzer.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use serde::{Deserialize, Serialize};
+use tauri::State;
+
+use super::types::{AnalysisResult, AnalyzerError, UrlAnalyzer};
+
+pub struct WebsiteAnalyzerState(pub Arc<dyn UrlAnalyzer>);
+
+impl WebsiteAnalyzerState {
+    pub fn new(analyzer: Arc<dyn UrlAnalyzer>) -> Self {
+        Self(analyzer)
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", content = "detail")]
+pub enum AnalyzerIpcError {
+    InvalidUrl(String),
+    Spawn(String),
+    Sidecar(String),
+    ParseOutput(String),
+    Io(String),
+}
+
+impl From<AnalyzerError> for AnalyzerIpcError {
+    fn from(value: AnalyzerError) -> Self {
+        match value {
+            AnalyzerError::InvalidUrl(m) => Self::InvalidUrl(m),
+            AnalyzerError::Spawn(m) => Self::Spawn(m),
+            AnalyzerError::Sidecar(m) => Self::Sidecar(m),
+            AnalyzerError::ParseOutput(m) => Self::ParseOutput(m),
+            AnalyzerError::Io(e) => Self::Io(e.to_string()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AnalyzeUrlInput {
+    pub url: String,
+    /// Optional screenshot target path (must be writable by the process).
+    #[serde(default)]
+    pub screenshot_path: Option<PathBuf>,
+}
+
+#[tauri::command]
+pub async fn analyze_url(
+    input: AnalyzeUrlInput,
+    state: State<'_, WebsiteAnalyzerState>,
+) -> Result<AnalysisResult, AnalyzerIpcError> {
+    state
+        .0
+        .analyze(&input.url, input.screenshot_path.as_deref())
+        .await
+        .map_err(Into::into)
+}
