@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { readProjectHistory, writeProjectHistory } from "@/lib/projectCommands";
 import type { ModuleId } from "@/stores/appStore";
 import { useHistoryStore } from "@/stores/historyStore";
+import { useUiStore } from "@/stores/uiStore";
 
 export interface Project {
   id: string;
@@ -25,30 +26,6 @@ export interface ProjectState {
   clearRecents: () => void;
 }
 
-/**
- * Fire-and-forget history hydration. Errors are swallowed — a missing or
- * corrupt `history.json` must never block opening a project. On failure the
- * caller sees an empty history (the default state after `clear()`).
- */
-function hydrateHistoryFor(project: Project): void {
-  readProjectHistory(project.path)
-    .then((raw) => useHistoryStore.getState().hydrate(raw))
-    .catch(() => {
-      /* non-fatal: start with empty history */
-    });
-}
-
-/**
- * Fire-and-forget history persistence. Failures are swallowed — a failed
- * write on close must never block the user's workflow.
- */
-function persistHistoryFor(project: Project): void {
-  const json = useHistoryStore.getState().serialize();
-  writeProjectHistory(project.path, json).catch(() => {
-    /* non-fatal: history may be lost for this session */
-  });
-}
-
 export const useProjectStore = create<ProjectState>((set, get) => ({
   currentProject: null,
   recents: [],
@@ -63,12 +40,43 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         recents: [project, ...withoutDupe].slice(0, RECENTS_LIMIT),
       };
     });
-    hydrateHistoryFor(project);
+
+    // Hydrate is async while openProject is sync — guard against two races:
+    //   1) User switches to a different project before hydrate resolves.
+    //   2) User performs an undoable action before hydrate resolves, which
+    //      would otherwise get clobbered by the disk state.
+    // Only apply the hydrated stacks if the same project is still open AND
+    // nothing has been pushed onto the live history in the interim.
+    const targetId = project.id;
+    readProjectHistory(project.path)
+      .then((raw) => {
+        const current = get().currentProject;
+        const hs = useHistoryStore.getState();
+        if (current?.id === targetId && hs.past.length === 0 && hs.future.length === 0) {
+          hs.hydrate(raw);
+        }
+      })
+      .catch((err) => {
+        useUiStore.getState().notify({
+          kind: "warning",
+          message: "Undo-Verlauf konnte nicht geladen werden",
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      });
   },
   closeProject: () => {
     const prev = get().currentProject;
     if (prev) {
-      persistHistoryFor(prev);
+      // Fire-and-forget persistence, but surface write failures so the user
+      // knows their undo history didn't make it to disk.
+      const json = useHistoryStore.getState().serialize();
+      writeProjectHistory(prev.path, json).catch((err) => {
+        useUiStore.getState().notify({
+          kind: "warning",
+          message: "Undo-Verlauf konnte nicht gespeichert werden",
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      });
     }
     useHistoryStore.getState().clear();
     set({ currentProject: null });

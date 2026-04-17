@@ -8,10 +8,19 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
+use thiserror::Error;
 
 use crate::ai_router::commands::AiRouterState;
 use crate::ai_router::{AiRequest, AiRouter, Complexity, Priority, TaskKind};
 use crate::code_generator::types::GeneratedFile;
+
+/// Unique delimiter used to fence the user's selection inside the prompt.
+///
+/// Chosen so it can never collide with markdown code fences the user might
+/// have pasted into their selection (e.g. triple-backtick). If Claude tries
+/// to wrap its reply in this delimiter anyway, we don't strip it — we only
+/// strip standard markdown fences. The frontend just sees the raw reply.
+const SELECTION_DELIM: &str = "<<<<TERRYBLE-SELECTION>>>>";
 
 /// Incoming modify request from the frontend.
 ///
@@ -33,28 +42,112 @@ pub struct ModifyResponse {
     pub replacement: String,
 }
 
+/// Typed failures from [`modify_selection`].
+///
+/// The Tauri boundary still serialises to `Result<_, String>` for the
+/// frontend — see [`ModifyError::into_ipc`] — but internally we carry
+/// structured variants so callers and tests can pattern-match instead of
+/// grepping error strings.
+#[derive(Debug, Error)]
+pub enum ModifyError {
+    #[error("selection is empty")]
+    EmptySelection,
+    #[error("instruction is empty")]
+    EmptyInstruction,
+    #[error("router error: {0}")]
+    Router(String),
+    #[error("empty replacement")]
+    EmptyReplacement,
+}
+
+impl ModifyError {
+    /// Serialise at the Tauri command boundary — the frontend only sees the
+    /// human-readable message.
+    pub fn into_ipc(self) -> String {
+        self.to_string()
+    }
+}
+
 /// Build the instruction prompt sent through the router.
+///
+/// The selection is fenced with [`SELECTION_DELIM`] rather than triple
+/// backticks so a pasted code block containing ``` cannot close the fence
+/// early (prompt injection guard).
 pub(crate) fn build_prompt(req: &ModifyRequest) -> String {
     format!(
-        "You are editing `{file}` in a React + Tailwind project. \
-Here is the selected snippet:\n\n```\n{sel}\n```\n\n\
+        "You are editing `{file}` in a React+Tailwind project.\n\n\
+Here is the selected snippet, fenced by the markers below:\n\n\
+{delim}\n{sel}\n{delim}\n\n\
 Apply this change: {instr}\n\n\
-Return ONLY the replacement snippet, no prose, no code fences, no leading/trailing blank lines.",
+Return ONLY the replacement snippet that goes between the markers — \
+no markers, no prose, no code fences.",
         file = req.file_path,
         sel = req.selection,
         instr = req.instruction,
+        delim = SELECTION_DELIM,
     )
 }
 
-/// Extract the text payload from whatever the Claude wrapper returned.
+/// Strip a single surrounding markdown fence from a multi-line string.
 ///
-/// `ClaudeClient::send_messages` wraps the content as
-/// `{ "text": "...", "stop_reason": "..." }`. As a defensive fallback we
-/// also support the raw Anthropic `{ "content": [{ "text": "..." }] }` shape
-/// for adapters that forward the upstream body verbatim.
+/// Triggers only when the first line is an opening fence (``` with an
+/// optional language tag) AND the last non-empty line is a closing fence.
+/// Everything else is returned as-is so unfenced replies pass through
+/// untouched.
+fn strip_markdown_fence(s: &str) -> String {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let lines: Vec<&str> = trimmed.lines().collect();
+    if lines.len() < 2 {
+        return trimmed.to_string();
+    }
+
+    let first = lines[0].trim();
+    let is_opening =
+        first.starts_with("```") && first[3..].chars().all(|c| c.is_ascii_alphanumeric());
+    if !is_opening {
+        return trimmed.to_string();
+    }
+
+    // Find the last non-empty line and require it to be a bare ``` fence.
+    let mut last_idx: Option<usize> = None;
+    for (i, line) in lines.iter().enumerate().rev() {
+        if !line.trim().is_empty() {
+            last_idx = Some(i);
+            break;
+        }
+    }
+    let Some(last_i) = last_idx else {
+        return trimmed.to_string();
+    };
+    if last_i == 0 {
+        return trimmed.to_string();
+    }
+    if lines[last_i].trim() != "```" {
+        return trimmed.to_string();
+    }
+
+    lines[1..last_i].join("\n").trim().to_string()
+}
+
+// Extract the text payload from whatever the Claude wrapper returned.
+//
+// `ClaudeClient::send_messages` wraps the content as
+// `{ "text": "...", "stop_reason": "..." }`. As a defensive fallback we
+// also support the raw Anthropic `{ "content": [{ "text": "..." }] }` shape
+// for adapters that forward the upstream body verbatim.
+//
+// After picking the text field we strip a surrounding markdown fence so a
+// multi-line reply that starts with ```tsx on its own line and ends with
+// ``` on its own line comes back as just the body. The previous
+// trim_matches('`') approach left the fence in place once newlines sat
+// between it and the edges.
 fn extract_text(output: &serde_json::Value) -> String {
     if let Some(t) = output.get("text").and_then(|v| v.as_str()) {
-        return t.trim().trim_matches('`').trim().to_string();
+        return strip_markdown_fence(t);
     }
     if let Some(t) = output
         .get("content")
@@ -63,7 +156,7 @@ fn extract_text(output: &serde_json::Value) -> String {
         .and_then(|b| b.get("text"))
         .and_then(|t| t.as_str())
     {
-        return t.trim().trim_matches('`').trim().to_string();
+        return strip_markdown_fence(t);
     }
     String::new()
 }
@@ -72,12 +165,12 @@ fn extract_text(output: &serde_json::Value) -> String {
 pub async fn modify_selection(
     router: &AiRouter,
     req: ModifyRequest,
-) -> Result<ModifyResponse, String> {
+) -> Result<ModifyResponse, ModifyError> {
     if req.selection.trim().is_empty() {
-        return Err("selection is empty".into());
+        return Err(ModifyError::EmptySelection);
     }
     if req.instruction.trim().is_empty() {
-        return Err("instruction is empty".into());
+        return Err(ModifyError::EmptyInstruction);
     }
 
     let prompt = build_prompt(&req);
@@ -90,10 +183,15 @@ pub async fn modify_selection(
         payload: serde_json::Value::Null,
     };
 
-    let resp = router.route(ai_req).await.map_err(|e| e.to_string())?;
-    Ok(ModifyResponse {
-        replacement: extract_text(&resp.output),
-    })
+    let resp = router
+        .route(ai_req)
+        .await
+        .map_err(|e| ModifyError::Router(e.to_string()))?;
+    let replacement = extract_text(&resp.output);
+    if replacement.is_empty() {
+        return Err(ModifyError::EmptyReplacement);
+    }
+    Ok(ModifyResponse { replacement })
 }
 
 #[tauri::command]
@@ -101,8 +199,14 @@ pub async fn modify_code_selection(
     req: ModifyRequest,
     state: State<'_, AiRouterState>,
 ) -> Result<ModifyResponse, String> {
+    // TODO(#TBD): `req.files` is currently shipped over IPC on every
+    // keystroke-triggered assist call but never used in the prompt. Either
+    // wire it into the prompt as additional context or drop it from the
+    // wire payload to keep IPC lean.
     let router: Arc<AiRouter> = Arc::clone(&state.0);
-    modify_selection(&router, req).await
+    modify_selection(&router, req)
+        .await
+        .map_err(|e| e.into_ipc())
 }
 
 #[cfg(test)]
@@ -179,7 +283,7 @@ mod tests {
         let mut req = sample_request();
         req.selection = "   ".into();
         let err = modify_selection(&router, req).await.unwrap_err();
-        assert!(err.contains("selection"));
+        assert!(matches!(err, ModifyError::EmptySelection));
     }
 
     #[tokio::test]
@@ -189,7 +293,7 @@ mod tests {
         let mut req = sample_request();
         req.instruction = "   ".into();
         let err = modify_selection(&router, req).await.unwrap_err();
-        assert!(err.contains("instruction"));
+        assert!(matches!(err, ModifyError::EmptyInstruction));
     }
 
     #[tokio::test]
@@ -202,6 +306,24 @@ mod tests {
         assert!(p.contains("<h1>Old</h1>"));
         assert!(p.contains("make the headline larger"));
         assert!(p.contains("Return ONLY"));
+    }
+
+    #[test]
+    fn prompt_uses_unique_selection_delimiter() {
+        // A selection that contains triple-backticks must not close the prompt
+        // fence early. The outer <<<<TERRYBLE-SELECTION>>>> markers must
+        // survive, and the user's backticks must be preserved verbatim inside
+        // the body.
+        let mut req = sample_request();
+        req.selection = "```tsx\n<h1>x</h1>\n```".into();
+        let p = build_prompt(&req);
+        let delim_hits = p.matches(SELECTION_DELIM).count();
+        assert_eq!(
+            delim_hits, 2,
+            "expected exactly two delimiter markers, got {}: {}",
+            delim_hits, p
+        );
+        assert!(p.contains("```tsx\n<h1>x</h1>\n```"));
     }
 
     #[test]
@@ -220,5 +342,29 @@ mod tests {
     fn extract_text_returns_empty_when_missing() {
         let v = serde_json::json!({ "stop_reason": "end_turn" });
         assert_eq!(extract_text(&v), "");
+    }
+
+    #[test]
+    fn extract_text_strips_multi_line_tsx_fence() {
+        let v = serde_json::json!({
+            "text": "```tsx\n<h1 class=\"text-5xl\">Hello</h1>\n```"
+        });
+        assert_eq!(extract_text(&v), "<h1 class=\"text-5xl\">Hello</h1>");
+    }
+
+    #[test]
+    fn extract_text_strips_plain_fence() {
+        let v = serde_json::json!({
+            "text": "```\n<h1>Hi</h1>\n```"
+        });
+        assert_eq!(extract_text(&v), "<h1>Hi</h1>");
+    }
+
+    #[test]
+    fn extract_text_leaves_unfenced_text_alone() {
+        let v = serde_json::json!({
+            "text": "<h1>Hi</h1>\n<p>there</p>"
+        });
+        assert_eq!(extract_text(&v), "<h1>Hi</h1>\n<p>there</p>");
     }
 }
