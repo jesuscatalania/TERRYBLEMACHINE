@@ -25,7 +25,12 @@ function SectionLabel({ children }: { children: string }) {
 }
 
 export function Sidebar() {
-  const { activeModule, setActiveModule, sidebarOpen, toggleSidebar } = useAppStore();
+  // Per-field selectors — prevents re-render on unrelated appStore changes
+  // (theme flip, future additions). See FU #94.
+  const activeModule = useAppStore((s) => s.activeModule);
+  const setActiveModule = useAppStore((s) => s.setActiveModule);
+  const sidebarOpen = useAppStore((s) => s.sidebarOpen);
+  const toggleSidebar = useAppStore((s) => s.toggleSidebar);
   const currentProject = useProjectStore((s) => s.currentProject);
   const navigate = useNavigate();
 

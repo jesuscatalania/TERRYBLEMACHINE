@@ -16,9 +16,31 @@ export function TextControls({
   initialSize = 48,
   onChange,
 }: TextControlsProps) {
-  const [font, setFont] = useState<GoogleFont>(initialFont as GoogleFont);
+  // Runtime guard against an off-list initialFont — if the Textbox currently
+  // carries a family we don't know how to inject (e.g. "Comic Sans MS"),
+  // fall back to Inter rather than silently advertising a bogus selection.
+  // See FU #105 (c).
+  const [font, setFont] = useState<GoogleFont>(() =>
+    (GOOGLE_FONTS as readonly string[]).includes(initialFont)
+      ? (initialFont as GoogleFont)
+      : "Inter",
+  );
   const [color, setColor] = useState(initialColor);
   const [size, setSize] = useState(initialSize);
+
+  // Dropdown.onChange signature is (value: string) => void — we still want
+  // to await font-load before pushing state + notifying the parent, so we
+  // wrap the async work inside and fire-and-await it ourselves.
+  const handleFontChange = (v: string) => {
+    const next = v as GoogleFont;
+    // Intentionally not awaited by Dropdown — we use an IIFE so we can await
+    // injectGoogleFont before committing state and propagating the change.
+    void (async () => {
+      await injectGoogleFont(next);
+      setFont(next);
+      onChange({ font: next });
+    })();
+  };
 
   return (
     <div className="flex flex-col gap-2">
@@ -37,12 +59,7 @@ export function TextControls({
           id="text-font"
           value={font}
           searchable
-          onChange={(v) => {
-            const next = v as GoogleFont;
-            injectGoogleFont(next);
-            setFont(next);
-            onChange({ font: next });
-          }}
+          onChange={handleFontChange}
           options={GOOGLE_FONTS.map((f) => ({ value: f, label: f }))}
         />
       </div>

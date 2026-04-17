@@ -74,6 +74,12 @@ export interface FabricCanvasHandle {
   hasCropSelection: () => boolean;
   /** Patch font / color / size on a Textbox layer. Missing keys are left unchanged. */
   updateText: (id: string, patch: { font?: string; color?: string; size?: number }) => void;
+  /**
+   * Read the current font / color / size off a Textbox layer. Returns
+   * null for non-text layers or unknown ids. Used by the Graphic2D page
+   * to seed TextControls' initial state on selection change (FU #105).
+   */
+  getTextProperties: (id: string) => { font: string; color: string; size: number } | null;
 }
 
 export interface FabricCanvasProps {
@@ -591,6 +597,17 @@ export const FabricCanvas = forwardRef<FabricCanvasHandle, FabricCanvasProps>(
           if (patch.size !== undefined) obj.set({ fontSize: patch.size });
           c.requestRenderAll();
           refreshLayers();
+        },
+        getTextProperties(id) {
+          const c = canvasRef.current;
+          if (!c) return null;
+          const obj = findById(c, id);
+          if (!obj || !(obj instanceof fabric.Textbox)) return null;
+          return {
+            font: String(obj.fontFamily ?? "Inter"),
+            color: String(obj.fill ?? "#F7F7F8"),
+            size: Number(obj.fontSize ?? 48),
+          };
         },
       }),
       [],

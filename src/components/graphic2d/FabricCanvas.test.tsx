@@ -58,4 +58,35 @@ describe("FabricCanvas handle", () => {
     expect(c?.selection).toBe(true);
     expect(c?.isDrawingMode).toBe(false);
   });
+
+  it("getTextProperties returns the Textbox's current font/color/size", () => {
+    const ref = createRef<FabricCanvasHandle>();
+    render(<FabricCanvas ref={ref} width={200} height={100} />);
+    const h = ref.current;
+    expect(h).not.toBeNull();
+    if (!h) return;
+    const layer = h.addText("hello");
+    // Default values written by addText: Inter / #F7F7F8 / 48.
+    expect(h.getTextProperties(layer.id)).toEqual({
+      font: "Inter",
+      color: "#F7F7F8",
+      size: 48,
+    });
+    // After updateText the getter reflects the new state.
+    h.updateText(layer.id, { font: "Oswald", color: "#ff0000", size: 72 });
+    expect(h.getTextProperties(layer.id)).toEqual({
+      font: "Oswald",
+      color: "#ff0000",
+      size: 72,
+    });
+  });
+
+  it("getTextProperties returns null for non-text / unknown ids", () => {
+    const ref = createRef<FabricCanvasHandle>();
+    render(<FabricCanvas ref={ref} width={200} height={100} />);
+    const h = ref.current;
+    expect(h).not.toBeNull();
+    if (!h) return;
+    expect(h.getTextProperties("does-not-exist")).toBeNull();
+  });
 });

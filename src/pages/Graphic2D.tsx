@@ -36,6 +36,14 @@ export function Graphic2DPage() {
   const [selectionMode, setSelectionMode] = useState<"none" | "marquee" | "lasso">("none");
   const [canvasW, setCanvasW] = useState(900);
   const [canvasH, setCanvasH] = useState(600);
+  // Snapshot of the selected text layer's font/color/size so the
+  // TextControls picker can render with the real current values
+  // instead of snapping back to Inter on re-selection (FU #105).
+  const [textProps, setTextProps] = useState<{
+    font: string;
+    color: string;
+    size: number;
+  } | null>(null);
   const notify = useUiStore((s) => s.notify);
 
   // Toggle selection modes on the canvas whenever the dropdown changes.
@@ -46,6 +54,18 @@ export function Graphic2DPage() {
     else if (selectionMode === "lasso") handle.enterLassoSelect();
     else handle.exitSelectionMode();
   }, [selectionMode]);
+
+  // Refresh the current-text-props snapshot whenever the selection changes.
+  // Runs on selectedId *and* on the layer list in case the underlying object
+  // was just added (addText) — the first event fires before the object id
+  // is in layersRef.
+  useEffect(() => {
+    if (!selectedId) {
+      setTextProps(null);
+      return;
+    }
+    setTextProps(canvasRef.current?.getTextProperties(selectedId) ?? null);
+  }, [selectedId]);
 
   async function generate() {
     if (!prompt.trim()) return;
@@ -339,10 +359,16 @@ export function Graphic2DPage() {
             )}
           </div>
 
-          {layers.find((l) => l.id === selectedId)?.type === "text" ? (
+          {layers.find((l) => l.id === selectedId)?.type === "text" && textProps ? (
             <div className="mt-2">
               <TextControls
+                // key={selectedId} — remount on selection change so local
+                // picker state starts fresh, now hydrated from the real
+                // Textbox state via textProps (FU #105).
                 key={selectedId}
+                initialFont={textProps.font}
+                initialColor={textProps.color}
+                initialSize={textProps.size}
                 onChange={(patch) => {
                   if (selectedId) canvasRef.current?.updateText(selectedId, patch);
                 }}

@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "icon";
 export type ButtonSize = "sm" | "md" | "lg";
@@ -9,6 +9,12 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   /** Button height+padding tier. Defaults to `md`. */
   size?: ButtonSize;
   children?: ReactNode;
+  /**
+   * React 19 forwards refs as a regular prop; we accept and spread it onto
+   * the underlying `<button>`. Used by RecentsMenu to focus-return after
+   * Escape / click-outside / item selection (FU #95).
+   */
+  ref?: Ref<HTMLButtonElement>;
 }
 
 const BASE =
