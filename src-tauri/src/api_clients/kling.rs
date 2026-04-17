@@ -2,8 +2,8 @@
 //!
 //! Follows the reference pattern established in [`super::claude`]:
 //! 1. `new(key_store)` + `with_base_url(..)` keychain-backed constructors.
-//! 2. Impl of [`AiClient`](crate::ai_router::AiClient) dispatches the single
-//!    text-to-video endpoint through `send_request`.
+//! 2. Impl of [`AiClient`](crate::ai_router::AiClient) dispatches both the
+//!    `text2video` and `image2video` endpoints through `send_request`.
 //! 3. Wiremock-based unit tests cover happy path + key error modes.
 
 use std::sync::Arc;
@@ -124,8 +124,23 @@ impl KlingClient {
                 let url = format!("{}/v1/videos/image2video", self.base_url);
                 (url, body)
             }
-            _ => {
-                return Err(ProviderError::Permanent("kling: unsupported task".into()));
+            // Exhaustive arm — adding a new TaskKind without considering Kling
+            // forces a compile error rather than silently routing to
+            // `Permanent("unsupported")`.
+            TaskKind::TextGeneration
+            | TaskKind::ImageGeneration
+            | TaskKind::ImageEdit
+            | TaskKind::ImageAnalysis
+            | TaskKind::Inpaint
+            | TaskKind::Upscale
+            | TaskKind::Logo
+            | TaskKind::VideoMontage
+            | TaskKind::Text3D
+            | TaskKind::Image3D => {
+                return Err(ProviderError::Permanent(format!(
+                    "kling: unsupported task {:?}",
+                    request.task
+                )));
             }
         };
 
@@ -145,7 +160,7 @@ impl KlingClient {
             return Err(map_http_error(status, &text));
         }
 
-        let parsed: Text2VideoResponse = resp.json().await.map_err(map_reqwest_error)?;
+        let parsed: KlingVideoResponse = resp.json().await.map_err(map_reqwest_error)?;
 
         let mut output = json!({
             "job_id": parsed.task_id,
@@ -168,8 +183,11 @@ impl KlingClient {
     }
 }
 
+/// Kling's submission response — shared across the `text2video` and
+/// `image2video` endpoints. Both return the same envelope:
+/// `{ task_id, task_status, video_url? }`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Text2VideoResponse {
+struct KlingVideoResponse {
     #[serde(default)]
     task_id: String,
     #[serde(default, alias = "status")]

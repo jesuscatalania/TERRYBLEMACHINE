@@ -1,12 +1,13 @@
 //! Tauri IPC command for the website analyzer.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use super::types::{AnalysisResult, AnalyzerError, UrlAnalyzer};
+use crate::projects::commands::ProjectStoreState;
 
 pub struct WebsiteAnalyzerState(pub Arc<dyn UrlAnalyzer>);
 
@@ -23,6 +24,10 @@ pub enum AnalyzerIpcError {
     Spawn(String),
     Sidecar(String),
     ParseOutput(String),
+    /// Caller-supplied input failed validation (e.g. `project_path` outside
+    /// the trusted projects root). Surfaces a typed error rather than a
+    /// generic Io for clearer frontend handling.
+    InvalidRequest(String),
     Io(String),
 }
 
@@ -50,12 +55,46 @@ pub struct AnalyzeUrlInput {
     pub project_path: Option<PathBuf>,
 }
 
+/// Resolve `project_path` (untrusted, IPC-supplied) to its canonical form
+/// and refuse to proceed unless it lies inside `projects_root`.
+///
+/// Why: a symlink at `<project_path>/assets → /etc` would let the sidecar
+/// write image/font files outside the user's projects folder. Canonicalizing
+/// the requested path *and* the trusted root, then enforcing
+/// `requested.starts_with(root)`, closes that escape hatch.
+pub fn resolve_assets_dir(
+    project_path: &Path,
+    projects_root: &Path,
+) -> Result<PathBuf, AnalyzerIpcError> {
+    let canon = std::fs::canonicalize(project_path).map_err(|e| {
+        AnalyzerIpcError::InvalidRequest(format!("project_path `{}`: {e}", project_path.display()))
+    })?;
+    let root_canon = std::fs::canonicalize(projects_root).map_err(|e| {
+        AnalyzerIpcError::InvalidRequest(format!(
+            "projects_root `{}`: {e}",
+            projects_root.display()
+        ))
+    })?;
+    if !canon.starts_with(&root_canon) {
+        return Err(AnalyzerIpcError::InvalidRequest(format!(
+            "project_path `{}` must be under projects_root `{}`",
+            canon.display(),
+            root_canon.display(),
+        )));
+    }
+    Ok(canon.join("assets"))
+}
+
 #[tauri::command]
 pub async fn analyze_url(
     input: AnalyzeUrlInput,
     state: State<'_, WebsiteAnalyzerState>,
+    project_state: State<'_, ProjectStoreState>,
 ) -> Result<AnalysisResult, AnalyzerIpcError> {
-    let assets_dir = input.project_path.as_ref().map(|p| p.join("assets"));
+    let assets_dir = match &input.project_path {
+        Some(p) => Some(resolve_assets_dir(p, &project_state.root)?),
+        None => None,
+    };
     state
         .0
         .analyze(

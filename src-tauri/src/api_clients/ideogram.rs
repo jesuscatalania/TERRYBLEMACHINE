@@ -24,6 +24,10 @@ pub const DEFAULT_BASE_URL: &str = "https://api.ideogram.ai";
 pub const KEYCHAIN_SERVICE: &str = "ideogram";
 /// Default rate limit: 10 rps fits the published Ideogram quota.
 const DEFAULT_RATE_PER_SEC: usize = 10;
+/// Ideogram model version sent in both the outer envelope and the nested
+/// `image_request` block. Single source of truth so a future bump (V_4) only
+/// changes one constant.
+const IDEOGRAM_MODEL_VERSION: &str = "V_3";
 
 pub struct IdeogramClient {
     http: Client,
@@ -84,11 +88,11 @@ impl IdeogramClient {
             .to_owned();
 
         let body = json!({
-            "model_version": "V_3",
+            "model_version": IDEOGRAM_MODEL_VERSION,
             "image_request": {
                 "prompt": request.prompt,
                 "aspect_ratio": aspect_ratio,
-                "model_version": "V_3",
+                "model_version": IDEOGRAM_MODEL_VERSION,
             }
         });
 
@@ -323,6 +327,36 @@ mod tests {
         assert_eq!(
             resp.output.get("url").and_then(|v| v.as_str()),
             Some("https://out/l.png")
+        );
+    }
+
+    /// Asserts the v3 model version is *also* placed inside the
+    /// `image_request` block — Ideogram's v3 generate endpoint requires it
+    /// nested as well as on the outer envelope. Outer-only is silently
+    /// downgraded by the API.
+    #[tokio::test]
+    async fn v3_model_version_in_image_request() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/generate"))
+            .and(body_partial_json(
+                json!({ "image_request": { "model_version": "V_3" } }),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": [{ "url": "https://out/nested.png" }]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = IdeogramClient::for_test(key_store_with_key(), server.uri());
+        let resp = client
+            .execute(Model::IdeogramV3, &request("logo nested"))
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.output.get("url").and_then(|v| v.as_str()),
+            Some("https://out/nested.png")
         );
     }
 }

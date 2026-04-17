@@ -9,6 +9,7 @@
 
 use std::path::PathBuf;
 
+use terryblemachine_lib::website_analyzer::commands::{resolve_assets_dir, AnalyzerIpcError};
 use terryblemachine_lib::website_analyzer::{PlaywrightUrlAnalyzer, UrlAnalyzer};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -184,4 +185,80 @@ async fn analyze_downloads_assets_from_mock_server() {
         "expected at least one file saved under {}, got {on_disk}",
         assets_dir.path().display()
     );
+}
+
+// ─── FU #101: project_path canonicalization ───────────────────────────────
+
+/// Happy path: a project directory that lives directly under the projects
+/// root must be accepted, and the returned `assets_dir` must point at
+/// `<canonical project>/assets`.
+#[test]
+fn resolve_assets_dir_accepts_project_inside_root() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().join("my-site");
+    std::fs::create_dir_all(&project).unwrap();
+
+    let assets = resolve_assets_dir(&project, root.path()).expect("project under root accepted");
+
+    let canon_project = std::fs::canonicalize(&project).unwrap();
+    assert_eq!(assets, canon_project.join("assets"));
+}
+
+/// Symlink-traversal guard: a `project_path` whose canonical form lies
+/// *outside* the trusted projects root must be rejected with
+/// `InvalidRequest`. Without this check, a `<root>/escape → /etc` symlink
+/// would let the sidecar download assets into arbitrary OS directories.
+#[cfg(unix)]
+#[test]
+fn resolve_assets_dir_rejects_symlink_escape() {
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+
+    // Create a symlink inside the root that points at a directory outside it.
+    let escape = root.path().join("escape");
+    symlink(elsewhere.path(), &escape).expect("create symlink");
+
+    let err = resolve_assets_dir(&escape, root.path()).expect_err("symlink escape must be denied");
+    match err {
+        AnalyzerIpcError::InvalidRequest(msg) => {
+            assert!(
+                msg.contains("must be under projects_root"),
+                "unexpected message: {msg}"
+            );
+        }
+        other => panic!("expected InvalidRequest, got {other:?}"),
+    }
+}
+
+/// A project_path that references a sibling directory (`../other`) must be
+/// rejected even though the literal string starts with the root prefix.
+#[test]
+fn resolve_assets_dir_rejects_sibling_directory() {
+    let parent = tempfile::tempdir().unwrap();
+    let root = parent.path().join("projects");
+    let sibling = parent.path().join("other-projects");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(&sibling).unwrap();
+
+    let err = resolve_assets_dir(&sibling, &root).expect_err("sibling must be denied");
+    assert!(matches!(err, AnalyzerIpcError::InvalidRequest(_)));
+}
+
+/// A project_path that does not exist on disk must surface as
+/// `InvalidRequest` (canonicalize fails before we even get to the
+/// starts_with check).
+#[test]
+fn resolve_assets_dir_rejects_missing_path() {
+    let root = tempfile::tempdir().unwrap();
+    let missing = root.path().join("nope");
+
+    let err = resolve_assets_dir(&missing, root.path()).expect_err("missing path must error");
+    match err {
+        AnalyzerIpcError::InvalidRequest(msg) => {
+            assert!(msg.contains("project_path"), "unexpected message: {msg}");
+        }
+        other => panic!("expected InvalidRequest, got {other:?}"),
+    }
 }

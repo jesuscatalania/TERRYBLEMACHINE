@@ -103,8 +103,15 @@ impl RunwayClient {
 
         // Forward Motion Brush payload if the caller supplied one. Runway's
         // image_to_video endpoint accepts a top-level `motion_brush` object
-        // (e.g. `{ "strokes": [...] }`).
+        // (e.g. `{ "strokes": [...] }`). A scalar / array / null shape is a
+        // caller bug — fail fast with a permanent error rather than passing
+        // garbage to Runway and waiting for a 4xx response.
         if let Some(motion_brush) = request.payload.get("motion_brush") {
+            if !motion_brush.is_object() {
+                return Err(ProviderError::Permanent(
+                    "runway: motion_brush must be an object".into(),
+                ));
+            }
             body.as_object_mut()
                 .expect("body is a JSON object")
                 .insert("motion_brush".into(), motion_brush.clone());
@@ -309,6 +316,28 @@ mod tests {
         let client = RunwayClient::for_test(key_store_with_key(), "http://localhost".to_string());
         let usage = client.get_usage().await.unwrap();
         assert!(usage.notes.is_some());
+    }
+
+    #[tokio::test]
+    async fn motion_brush_scalar_is_rejected() {
+        let server = MockServer::start().await;
+        let client = RunwayClient::for_test(key_store_with_key(), server.uri());
+        let req = AiRequest {
+            id: "runway-mb-bad".into(),
+            task: TaskKind::ImageToVideo,
+            priority: Priority::Normal,
+            complexity: Complexity::Medium,
+            prompt: "x".into(),
+            // motion_brush as a scalar — must be rejected before hitting Runway.
+            payload: json!({ "motion_brush": "not-an-object" }),
+        };
+        let err = client.execute(Model::RunwayGen3, &req).await.unwrap_err();
+        match err {
+            ProviderError::Permanent(msg) => {
+                assert!(msg.contains("motion_brush"), "msg: {msg}");
+            }
+            other => panic!("expected Permanent, got {other:?}"),
+        }
     }
 
     #[tokio::test]
