@@ -1,6 +1,5 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "@/App";
@@ -8,20 +7,20 @@ import { useAppStore } from "@/stores/appStore";
 
 // R3F uses WebGL which jsdom cannot provide. Stub the <Canvas> wrapper so
 // navigating to /graphic3d doesn't trip the ResizeObserver/WebGL paths.
+// NOTE: vi.mock is hoisted above imports, so stubs must be imported *inside*
+// the factory — see src/test/r3f-mock-bodies.ts.
 vi.mock("@react-three/fiber", async () => {
-  const actual = await vi.importActual<typeof import("@react-three/fiber")>("@react-three/fiber");
-  return {
-    ...actual,
-    Canvas: (props: { children?: ReactNode }) => (
-      <div data-testid="three-canvas">{props.children}</div>
-    ),
-  };
+  const [actual, { FiberCanvasStub }] = await Promise.all([
+    vi.importActual<typeof import("@react-three/fiber")>("@react-three/fiber"),
+    import("@/test/r3f-mock-bodies"),
+  ]);
+  return { ...actual, Canvas: FiberCanvasStub };
 });
 
-vi.mock("@react-three/drei", () => ({
-  OrbitControls: () => null,
-  Environment: () => null,
-}));
+vi.mock("@react-three/drei", async () => {
+  const { DreiStubs } = await import("@/test/r3f-mock-bodies");
+  return DreiStubs;
+});
 
 describe("module route sync", () => {
   beforeEach(() => {
