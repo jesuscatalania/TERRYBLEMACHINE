@@ -1,5 +1,6 @@
 pub mod ai_router;
 pub mod api_clients;
+pub mod brand_kit;
 pub mod code_generator;
 pub mod depth_pipeline;
 pub mod exporter;
@@ -22,6 +23,8 @@ use tauri::Manager;
 
 use ai_router::commands::AiRouterState;
 use ai_router::{AiRouter, DefaultRoutingStrategy, PriorityQueue, RetryPolicy};
+use brand_kit::commands::BrandKitState;
+use brand_kit::{BrandKitBuilder, StandardBrandKit};
 use code_generator::commands::CodeGeneratorState;
 use code_generator::{CodeGenerator, StubCodeGenerator};
 use depth_pipeline::commands::DepthPipelineState;
@@ -191,6 +194,14 @@ pub fn run() {
             let vect: Arc<dyn Vectorizer> = Arc::new(VtracerPipeline::new());
             app.manage(VectorizerState::new(vect));
 
+            // Brand kit — pure-Rust raster resize + color variants via the
+            // `image` crate. No router, no network: takes the vectorizer's
+            // SVG + a raster render of the logo and produces the full
+            // favicon/web/print bundle plus a placeholder style guide (T6
+            // fills in the real generator).
+            let brand_kit: Arc<dyn BrandKitBuilder> = Arc::new(StandardBrandKit::new());
+            app.manage(BrandKitState::new(brand_kit));
+
             // Video pipeline — routes TextToVideo/ImageToVideo through the
             // AiRouter to Kling (Runway + Higgsfield as fallbacks, polling
             // wired in T4), then downloads the resulting MP4 into the
@@ -271,6 +282,7 @@ pub fn run() {
             mesh_pipeline::commands::export_mesh,
             logo_pipeline::commands::generate_logo_variants,
             vectorizer::commands::vectorize_image,
+            brand_kit::commands::build_brand_kit,
             video_pipeline::commands::generate_video_from_text,
             video_pipeline::commands::generate_video_from_image,
             remotion::commands::render_remotion,
