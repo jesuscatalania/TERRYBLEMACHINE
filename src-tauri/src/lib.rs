@@ -7,6 +7,7 @@ pub mod image_pipeline;
 pub mod keychain;
 pub mod mesh_pipeline;
 pub mod projects;
+pub mod remotion;
 pub mod storyboard_generator;
 pub mod taste_engine;
 pub mod video_pipeline;
@@ -155,6 +156,15 @@ pub fn run() {
             let video: Arc<dyn VideoPipeline> =
                 Arc::new(RouterVideoPipeline::new(Arc::clone(&ai_router_for_setup)));
             app.manage(VideoPipelineState::new(video));
+
+            // Remotion render pipeline — spawns `npx remotion render` in the
+            // workspace-local remotion/ subpackage. Output lands in
+            // <cache-dir>/terryblemachine/remotion-renders/<composition>-<hash>.mp4
+            // so repeat renders of the same (composition, props) are free.
+            let remotion_root = std::env::current_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                .join("remotion");
+            app.manage(remotion::RemotionState::new(remotion_root));
             Ok(())
         })
         .manage(KeyStoreState::new(keystore))
@@ -198,6 +208,7 @@ pub fn run() {
             mesh_pipeline::commands::export_mesh,
             video_pipeline::commands::generate_video_from_text,
             video_pipeline::commands::generate_video_from_image,
+            remotion::commands::render_remotion,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
