@@ -26,6 +26,21 @@ fn tiny_png() -> Vec<u8> {
     buf
 }
 
+/// Read a single ZIP entry into a `String`. Extracted to sidestep the
+/// overlapping-borrow dance that previously forced `{ ... }` block scopes
+/// around every `archive.by_name(...)` site: since `by_name` holds an
+/// exclusive borrow of the archive for as long as the entry lives, inlining
+/// the read makes the borrow end before the next call.
+fn read_entry<R: std::io::Read + std::io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    name: &str,
+) -> String {
+    let mut f = archive.by_name(name).unwrap();
+    let mut s = String::new();
+    std::io::Read::read_to_string(&mut f, &mut s).unwrap();
+    s
+}
+
 #[tokio::test]
 async fn brand_kit_produces_all_sizes_plus_variants() {
     let tmp = TempDir::new().unwrap();
@@ -188,9 +203,55 @@ async fn brand_kit_includes_style_guide_html() {
     assert_eq!(html, result.style_guide_html);
 }
 
+#[tokio::test]
+async fn brand_kit_rejects_invalid_hex_color() {
+    let tmp = TempDir::new().unwrap();
+    let src = tmp.path().join("src.png");
+    std::fs::write(&src, tiny_png()).unwrap();
+
+    let kit = StandardBrandKit::new();
+    let err = kit
+        .build(BrandKitInput {
+            logo_svg: "<svg/>".into(),
+            source_png_path: src,
+            brand_name: "X".into(),
+            primary_color: "not-a-color".into(),
+            accent_color: "#000".into(),
+            font: "Inter".into(),
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(err, BrandKitError::InvalidInput(_)));
+}
+
+#[tokio::test]
+async fn brand_kit_accepts_valid_hex_forms() {
+    let tmp = TempDir::new().unwrap();
+    let src = tmp.path().join("src.png");
+    std::fs::write(&src, tiny_png()).unwrap();
+
+    // 3/6/8 digit hex forms should all work
+    for (p, a) in &[
+        ("#fff", "#000"),
+        ("#E85D2D", "#0e0e11"),
+        ("#FF0000AA", "#00FF0088"),
+    ] {
+        let kit = StandardBrandKit::new();
+        kit.build(BrandKitInput {
+            logo_svg: "<svg/>".into(),
+            source_png_path: src.clone(),
+            brand_name: "X".into(),
+            primary_color: (*p).into(),
+            accent_color: (*a).into(),
+            font: "Inter".into(),
+        })
+        .await
+        .expect("should accept valid hex");
+    }
+}
+
 #[test]
 fn zip_export_contains_all_assets() {
-    use std::io::Read;
     use terryblemachine_lib::brand_kit::export::{slug_for, write_zip};
     use terryblemachine_lib::brand_kit::types::BrandKitAsset;
 
@@ -222,24 +283,30 @@ fn zip_export_contains_all_assets() {
     assert!(names.contains(&"a.txt".to_string()));
     assert!(names.contains(&"b.svg".to_string()));
 
-    {
-        let mut f = archive.by_name("a.txt").unwrap();
-        let mut content = String::new();
-        f.read_to_string(&mut content).unwrap();
-        assert_eq!(content, "hello");
-    }
+    assert_eq!(read_entry(&mut archive, "a.txt"), "hello");
+    assert_eq!(read_entry(&mut archive, "b.svg"), "<svg/>");
+}
 
-    {
-        let mut g = archive.by_name("b.svg").unwrap();
-        let mut svg_content = String::new();
-        g.read_to_string(&mut svg_content).unwrap();
-        assert_eq!(svg_content, "<svg/>");
-    }
+#[test]
+fn zip_export_rejects_nonexistent_destination() {
+    use terryblemachine_lib::brand_kit::export::{slug_for, write_zip};
+    use terryblemachine_lib::brand_kit::types::{BrandKitAsset, BrandKitError};
+
+    let assets = vec![BrandKitAsset {
+        filename: "x".into(),
+        bytes: vec![],
+    }];
+    let err = write_zip(
+        std::path::Path::new("/tmp/definitely-does-not-exist-terryblemachine"),
+        &slug_for("x"),
+        &assets,
+    )
+    .unwrap_err();
+    assert!(matches!(err, BrandKitError::InvalidInput(_)));
 }
 
 #[tokio::test]
 async fn build_plus_zip_roundtrip_contains_all_12_assets() {
-    use std::io::Read;
     use terryblemachine_lib::brand_kit::export::{slug_for, write_zip};
 
     let tmp = TempDir::new().unwrap();
@@ -258,7 +325,10 @@ async fn build_plus_zip_roundtrip_contains_all_12_assets() {
     let brand_slug = slug_for(&input.brand_name);
     let result = kit.build(input).await.unwrap();
 
+    // `write_zip` now refuses to auto-create the destination, so the test
+    // is responsible for materializing it before calling the export.
     let zip_dir = tmp.path().join("out");
+    std::fs::create_dir(&zip_dir).unwrap();
     let zip_path = write_zip(&zip_dir, &brand_slug, &result.assets).unwrap();
     assert!(zip_path.exists());
     assert!(zip_path.ends_with("acme-brand-brand-kit.zip"));
@@ -289,8 +359,6 @@ async fn build_plus_zip_roundtrip_contains_all_12_assets() {
         );
     }
     // Spot-check that style-guide.html survived the round-trip with content
-    let mut f = archive.by_name("style-guide.html").unwrap();
-    let mut html = String::new();
-    f.read_to_string(&mut html).unwrap();
+    let html = read_entry(&mut archive, "style-guide.html");
     assert!(html.contains("Acme Brand"));
 }

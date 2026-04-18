@@ -17,20 +17,26 @@ pub fn write_zip(
     brand_slug: &str,
     assets: &[BrandKitAsset],
 ) -> Result<PathBuf, BrandKitError> {
-    std::fs::create_dir_all(destination).map_err(|e| BrandKitError::Io(e.to_string()))?;
+    // Destination must be an existing directory — we refuse to create
+    // arbitrary new parent hierarchies (e.g. `"/etc/evil/brand-kit.zip"`
+    // would otherwise silently try). Callers that want the directory
+    // auto-created should do it explicitly before invoking the export.
+    if !destination.is_dir() {
+        return Err(BrandKitError::InvalidInput(format!(
+            "destination must be an existing directory, got {destination:?}"
+        )));
+    }
     let path = destination.join(format!("{brand_slug}-brand-kit.zip"));
-    let file = File::create(&path).map_err(|e| BrandKitError::Io(e.to_string()))?;
+    let file = File::create(&path)?;
     let mut zip = ZipWriter::new(file);
     let options: SimpleFileOptions = SimpleFileOptions::default()
         .compression_method(CompressionMethod::Deflated)
         .unix_permissions(0o644);
     for asset in assets {
-        zip.start_file(&asset.filename, options)
-            .map_err(|e| BrandKitError::Io(e.to_string()))?;
-        zip.write_all(&asset.bytes)
-            .map_err(|e| BrandKitError::Io(e.to_string()))?;
+        zip.start_file(&asset.filename, options)?;
+        zip.write_all(&asset.bytes)?;
     }
-    zip.finish().map_err(|e| BrandKitError::Io(e.to_string()))?;
+    zip.finish()?;
     Ok(path)
 }
 

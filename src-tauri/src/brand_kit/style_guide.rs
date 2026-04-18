@@ -10,14 +10,62 @@
 //! Intentionally no PDF rendering here — the backend stays dependency-free
 //! on this path. If a PDF is needed, the frontend can render the HTML with
 //! jsPDF (or print-to-PDF) against this same document.
+//!
+//! Every string that reaches the HTML/CSS passes through a context-specific
+//! escape helper. `logo_svg` is deliberately inlined raw because the upstream
+//! vectorizer produces trusted SVG markup that we want rendered — the other
+//! user-supplied strings (`brand_name`, `font`, `primary_color`,
+//! `accent_color`) cannot break out of their surrounding context.
 
 use super::types::BrandKitInput;
 
+/// Escape a string for use inside HTML element content.
+/// Covers `&`, `<`, `>` and `"` — enough to prevent tag-break and
+/// attribute-break attacks in element-text positions.
+fn escape_text(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// Escape a string for use inside an HTML attribute value.
+/// Adds `'` on top of [`escape_text`]'s set so single-quoted attributes
+/// stay safe too.
+#[allow(dead_code)]
+fn escape_attr(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+/// Escape a string for use inside a CSS string literal (e.g. the
+/// `font-family: "..."` declaration). Strips ASCII control characters
+/// entirely and backslash-escapes `\\` and `"`.
+fn escape_css_string(s: &str) -> String {
+    s.chars()
+        .filter(|c| !c.is_control())
+        .map(|c| match c {
+            '\\' => "\\\\".to_string(),
+            '"' => "\\\"".to_string(),
+            other => other.to_string(),
+        })
+        .collect()
+}
+
 pub fn build_style_guide(input: &BrandKitInput) -> String {
-    let name = &input.brand_name;
-    let primary = &input.primary_color;
-    let accent = &input.accent_color;
-    let font = &input.font;
+    let name_html = escape_text(&input.brand_name);
+    // Primary/accent are already validated as hex by `types::validate_input`,
+    // but we still run them through `escape_text` for defense in depth when
+    // they land inside `style="..."` attribute values and `<div class="meta">`
+    // element content — cheap insurance against a future caller bypassing the
+    // validator.
+    let primary_html = escape_text(&input.primary_color);
+    let accent_html = escape_text(&input.accent_color);
+    let font_css = escape_css_string(&input.font);
+    let font_html = escape_text(&input.font);
     let svg = &input.logo_svg;
 
     format!(
@@ -25,9 +73,9 @@ pub fn build_style_guide(input: &BrandKitInput) -> String {
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>{name} · Brand Guidelines</title>
+<title>{name_html} · Brand Guidelines</title>
 <style>
-  body {{ margin: 0; font-family: "{font}", sans-serif; color: #0E0E11; background: #F7F7F8; }}
+  body {{ margin: 0; font-family: "{font_css}", sans-serif; color: #0E0E11; background: #F7F7F8; }}
   .container {{ max-width: 960px; margin: 0 auto; padding: 64px 32px; }}
   h1 {{ font-size: 4rem; margin: 0 0 0.25em; }}
   h2 {{ font-size: 1.125rem; text-transform: uppercase; letter-spacing: 0.08em; margin: 2em 0 1em; color: #6b6b70; }}
@@ -43,7 +91,7 @@ pub fn build_style_guide(input: &BrandKitInput) -> String {
 </head>
 <body>
 <div class="container">
-  <h1>{name}</h1>
+  <h1>{name_html}</h1>
   <p>Brand guidelines — v1.0</p>
 
   <h2>Logo</h2>
@@ -57,18 +105,18 @@ pub fn build_style_guide(input: &BrandKitInput) -> String {
   <h2>Palette</h2>
   <div class="palette">
     <div class="swatch">
-      <div class="chip" style="background: {primary};"></div>
-      <div class="meta">Primary<br>{primary}</div>
+      <div class="chip" style="background: {primary_html};"></div>
+      <div class="meta">Primary<br>{primary_html}</div>
     </div>
     <div class="swatch">
-      <div class="chip" style="background: {accent};"></div>
-      <div class="meta">Accent<br>{accent}</div>
+      <div class="chip" style="background: {accent_html};"></div>
+      <div class="meta">Accent<br>{accent_html}</div>
     </div>
   </div>
 
   <h2>Typography</h2>
-  <p class="specimen">{name}</p>
-  <p class="rules">Typeface: {font}. Use for display and UI body text.</p>
+  <p class="specimen">{name_html}</p>
+  <p class="rules">Typeface: {font_html}. Use for display and UI body text.</p>
 </div>
 </body>
 </html>"#
@@ -80,6 +128,51 @@ mod tests {
     use super::super::types::BrandKitInput;
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn escape_text_handles_html_metachars() {
+        // escape_text covers `& < > "` — apostrophe intentionally passes
+        // through unchanged.
+        assert_eq!(escape_text("Ben & Jerry's"), "Ben &amp; Jerry's");
+        assert_eq!(escape_text(r#"A<B>"C""#), "A&lt;B&gt;&quot;C&quot;");
+    }
+
+    #[test]
+    fn escape_attr_handles_quote_and_apostrophe() {
+        assert_eq!(escape_attr(r#"a"b'c"#), "a&quot;b&#39;c");
+    }
+
+    #[test]
+    fn escape_css_string_handles_quote_and_backslash() {
+        assert_eq!(
+            escape_css_string(r#"Font"Name\Path"#),
+            r#"Font\"Name\\Path"#
+        );
+    }
+
+    #[test]
+    fn escape_css_string_strips_control_chars() {
+        // `\n` and `\t` and the NUL byte all drop out silently.
+        assert_eq!(escape_css_string("In\nter\ts\0"), "Inters");
+    }
+
+    #[test]
+    fn build_style_guide_escapes_malicious_brand_name() {
+        let input = BrandKitInput {
+            logo_svg: "<svg></svg>".into(),
+            source_png_path: PathBuf::from("x.png"),
+            brand_name: r#"<script>alert("xss")</script>"#.into(),
+            primary_color: "#e85d2d".into(),
+            accent_color: "#0E0E11".into(),
+            font: "Inter".into(),
+        };
+        let html = build_style_guide(&input);
+        // The malicious payload must not appear verbatim anywhere.
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("</script>"));
+        // …and the escaped form must appear where brand_name was substituted.
+        assert!(html.contains("&lt;script&gt;"));
+    }
 
     #[test]
     fn style_guide_embeds_brand_name_and_palette() {
@@ -97,5 +190,32 @@ mod tests {
         assert!(html.contains("#0E0E11"));
         assert!(html.contains("Inter"));
         assert!(html.contains("<svg>"));
+    }
+
+    #[test]
+    fn style_guide_structural_assertions() {
+        let input = BrandKitInput {
+            logo_svg: "<svg id=\"mark\"></svg>".into(),
+            source_png_path: PathBuf::from("x.png"),
+            brand_name: "Acme".into(),
+            primary_color: "#e85d2d".into(),
+            accent_color: "#0E0E11".into(),
+            font: "Inter".into(),
+        };
+        let html = build_style_guide(&input);
+        // Document starts with a lowercase HTML5 DOCTYPE.
+        assert!(html.trim_start().starts_with("<!doctype html>"));
+        // Primary color appears inside a `style="background: …;"` attribute.
+        assert!(html.contains("background: #e85d2d"));
+        // Accent color likewise. Allow either preserved case (current code
+        // preserves what the caller passed in, since it's already escaped
+        // as text rather than attribute-normalized).
+        assert!(html.contains("background: #0E0E11") || html.contains("background: #0e0e11"));
+        // The SVG lands inside the `.logo` div, not somewhere else in the
+        // document. This catches a regression where `logo_svg` drifts out
+        // of context after a refactor. Brand_name's `"` inside the SVG
+        // survives — escape_text didn't touch it because it's part of the
+        // raw SVG literal, not the brand_name path.
+        assert!(html.contains(r#"<div class="logo"><svg id="mark">"#));
     }
 }

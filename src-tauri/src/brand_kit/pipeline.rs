@@ -14,7 +14,9 @@
 
 use async_trait::async_trait;
 
-use super::types::{BrandKitAsset, BrandKitBuilder, BrandKitError, BrandKitInput, BrandKitResult};
+use super::types::{
+    self, BrandKitAsset, BrandKitBuilder, BrandKitError, BrandKitInput, BrandKitResult,
+};
 
 pub struct StandardBrandKit;
 
@@ -32,6 +34,12 @@ impl Default for StandardBrandKit {
 
 /// Target raster sizes. Labels double as output filenames (suffixed `.png`)
 /// so the consumer (T7 ZIP) doesn't need a separate naming convention.
+///
+/// Output filenames must stay unique. The `zip` crate v2 rejects duplicate
+/// filenames in `start_file` — if you add a new entry here, confirm its label
+/// doesn't collide with an existing one (including the `logo-bw.png`,
+/// `logo-inverted.png`, `logo.svg`, `style-guide.html` asset names produced
+/// elsewhere in this pipeline).
 const SIZES: &[(u32, &str)] = &[
     (16, "favicon-16"),
     (32, "favicon-32"),
@@ -46,8 +54,11 @@ const SIZES: &[(u32, &str)] = &[
 #[async_trait]
 impl BrandKitBuilder for StandardBrandKit {
     async fn build(&self, input: BrandKitInput) -> Result<BrandKitResult, BrandKitError> {
-        // Cheap validation stays on the Tokio thread so rejection paths
-        // don't pay for a spawn_blocking hop.
+        // Pure-validation checks first — cheap, Tokio-thread only, so the
+        // rejection paths don't pay for a spawn_blocking hop. Hex-color
+        // validation runs FIRST because it's the strongest gate against
+        // untrusted inputs reaching the HTML/CSS formatter downstream.
+        types::validate_input(&input)?;
         if input.logo_svg.trim().is_empty() {
             return Err(BrandKitError::InvalidInput("logo_svg empty".into()));
         }
@@ -64,10 +75,8 @@ impl BrandKitBuilder for StandardBrandKit {
         // allocation pass outside the closure.
         let (assets, style_guide_html) = tokio::task::spawn_blocking(
             move || -> Result<(Vec<BrandKitAsset>, String), BrandKitError> {
-                let source_bytes = std::fs::read(&input.source_png_path)
-                    .map_err(|e| BrandKitError::Io(e.to_string()))?;
-                let img = image::load_from_memory(&source_bytes)
-                    .map_err(|e| BrandKitError::Image(e.to_string()))?;
+                let source_bytes = std::fs::read(&input.source_png_path)?;
+                let img = image::load_from_memory(&source_bytes)?;
 
                 let mut assets: Vec<BrandKitAsset> = Vec::new();
 
@@ -84,9 +93,7 @@ impl BrandKitBuilder for StandardBrandKit {
                     let resized = img.resize(size, size, image::imageops::FilterType::Lanczos3);
                     let mut buf = Vec::new();
                     let mut cursor = std::io::Cursor::new(&mut buf);
-                    resized
-                        .write_to(&mut cursor, image::ImageFormat::Png)
-                        .map_err(|e| BrandKitError::Image(e.to_string()))?;
+                    resized.write_to(&mut cursor, image::ImageFormat::Png)?;
                     assets.push(BrandKitAsset {
                         filename: format!("{label}.png"),
                         bytes: buf,
@@ -111,8 +118,7 @@ impl BrandKitBuilder for StandardBrandKit {
                 let mut bw_buf = Vec::new();
                 let mut cursor = std::io::Cursor::new(&mut bw_buf);
                 image::DynamicImage::ImageRgba8(bw)
-                    .write_to(&mut cursor, image::ImageFormat::Png)
-                    .map_err(|e| BrandKitError::Image(e.to_string()))?;
+                    .write_to(&mut cursor, image::ImageFormat::Png)?;
                 assets.push(BrandKitAsset {
                     filename: "logo-bw.png".into(),
                     bytes: bw_buf,
@@ -128,8 +134,7 @@ impl BrandKitBuilder for StandardBrandKit {
                 let mut inv_buf = Vec::new();
                 let mut cursor = std::io::Cursor::new(&mut inv_buf);
                 image::DynamicImage::ImageRgba8(inv)
-                    .write_to(&mut cursor, image::ImageFormat::Png)
-                    .map_err(|e| BrandKitError::Image(e.to_string()))?;
+                    .write_to(&mut cursor, image::ImageFormat::Png)?;
                 assets.push(BrandKitAsset {
                     filename: "logo-inverted.png".into(),
                     bytes: inv_buf,
