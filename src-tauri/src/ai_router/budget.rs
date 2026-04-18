@@ -11,13 +11,38 @@
 #[cfg(test)]
 use std::time::Duration;
 
-#[cfg(test)]
-use chrono::Duration as ChronoDuration;
-use chrono::{DateTime, Utc};
+use std::sync::Arc;
+
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 use super::models::{Model, Provider, TaskKind};
+
+// ─── Clock ────────────────────────────────────────────────────────────────
+
+/// Abstraction over "today", so tests can pin the current UTC date and
+/// exercise day-rollover logic without depending on wall-clock time.
+pub trait Clock: Send + Sync {
+    /// The UTC date the manager should treat as "today".
+    fn today(&self) -> NaiveDate;
+    /// The current instant. Used for session/record timestamps.
+    fn now(&self) -> DateTime<Utc> {
+        Utc::now()
+    }
+}
+
+/// Production clock backed by `chrono::Utc::now()`.
+pub struct SystemClock;
+
+impl Clock for SystemClock {
+    fn today(&self) -> NaiveDate {
+        Utc::now().date_naive()
+    }
+    fn now(&self) -> DateTime<Utc> {
+        Utc::now()
+    }
+}
 
 /// Fraction of a limit at which [`BudgetState::Warn`] kicks in.
 pub const WARN_THRESHOLD: f64 = 0.80;
@@ -110,29 +135,39 @@ pub fn cost_cents_for(model: Model) -> u64 {
 
 pub struct BudgetManager {
     inner: Mutex<Inner>,
+    clock: Arc<dyn Clock>,
 }
 
 struct Inner {
     limits: BudgetLimits,
     used_today_cents: u64,
     used_session_cents: u64,
-    day_started_at: DateTime<Utc>,
+    day_started_at: NaiveDate,
     session_started_at: DateTime<Utc>,
     entries: Vec<UsageEntry>,
 }
 
 impl BudgetManager {
     pub fn new(limits: BudgetLimits) -> Self {
-        let now = Utc::now();
+        Self::with_clock(limits, Arc::new(SystemClock))
+    }
+
+    /// Like [`BudgetManager::new`], but with an injected clock. Production
+    /// code uses [`SystemClock`]; tests pin "today" with a manual clock to
+    /// exercise day-rollover logic deterministically.
+    pub fn with_clock(limits: BudgetLimits, clock: Arc<dyn Clock>) -> Self {
+        let today = clock.today();
+        let now = clock.now();
         Self {
             inner: Mutex::new(Inner {
                 limits,
                 used_today_cents: 0,
                 used_session_cents: 0,
-                day_started_at: start_of_utc_day(now),
+                day_started_at: today,
                 session_started_at: now,
                 entries: Vec::new(),
             }),
+            clock,
         }
     }
 
@@ -143,25 +178,18 @@ impl BudgetManager {
     /// Record a completed call. `cost_cents == 0` is still recorded so the
     /// CSV export captures every request, even free ones.
     pub async fn record(&self, entry: UsageEntry) {
-        self.record_at(entry, Utc::now()).await;
-    }
-
-    /// Testing entry point with explicit "now".
-    pub async fn record_at(&self, entry: UsageEntry, now: DateTime<Utc>) {
+        let today = self.clock.today();
         let mut inner = self.inner.lock().await;
-        inner.roll_day_if_needed(now);
+        inner.roll_day_if_needed(today);
         inner.used_today_cents = inner.used_today_cents.saturating_add(entry.cost_cents);
         inner.used_session_cents = inner.used_session_cents.saturating_add(entry.cost_cents);
         inner.entries.push(entry);
     }
 
     pub async fn status(&self) -> BudgetStatus {
-        self.status_at(Utc::now()).await
-    }
-
-    pub async fn status_at(&self, now: DateTime<Utc>) -> BudgetStatus {
+        let today = self.clock.today();
         let mut inner = self.inner.lock().await;
-        inner.roll_day_if_needed(now);
+        inner.roll_day_if_needed(today);
         let state = compute_state(
             inner.used_today_cents,
             inner.used_session_cents,
@@ -172,7 +200,7 @@ impl BudgetManager {
             used_today_cents: inner.used_today_cents,
             used_session_cents: inner.used_session_cents,
             limits: inner.limits,
-            day_started_at: inner.day_started_at,
+            day_started_at: start_of_utc_day_for(inner.day_started_at),
             session_started_at: inner.session_started_at,
         }
     }
@@ -184,12 +212,9 @@ impl BudgetManager {
     /// Returns true if a call with the indicative `projected_cents` cost
     /// would push daily or session spend over 100 %.
     pub async fn would_block(&self, projected_cents: u64) -> bool {
-        self.would_block_at(projected_cents, Utc::now()).await
-    }
-
-    pub async fn would_block_at(&self, projected_cents: u64, now: DateTime<Utc>) -> bool {
+        let today = self.clock.today();
         let mut inner = self.inner.lock().await;
-        inner.roll_day_if_needed(now);
+        inner.roll_day_if_needed(today);
         let projected_today = inner.used_today_cents.saturating_add(projected_cents);
         let projected_session = inner.used_session_cents.saturating_add(projected_cents);
         match compute_state(projected_today, projected_session, &inner.limits) {
@@ -229,19 +254,21 @@ impl BudgetManager {
 
     /// Reset the session counter but keep daily counters intact.
     pub async fn start_new_session(&self) {
+        let now = self.clock.now();
         let mut inner = self.inner.lock().await;
         inner.used_session_cents = 0;
-        inner.session_started_at = Utc::now();
+        inner.session_started_at = now;
     }
 
     /// Admin / testing reset.
     pub async fn clear(&self) {
+        let today = self.clock.today();
+        let now = self.clock.now();
         let mut inner = self.inner.lock().await;
         inner.used_today_cents = 0;
         inner.used_session_cents = 0;
         inner.entries.clear();
-        let now = Utc::now();
-        inner.day_started_at = start_of_utc_day(now);
+        inner.day_started_at = today;
         inner.session_started_at = now;
     }
 }
@@ -253,11 +280,10 @@ impl Default for BudgetManager {
 }
 
 impl Inner {
-    fn roll_day_if_needed(&mut self, now: DateTime<Utc>) {
-        let today_start = start_of_utc_day(now);
-        if today_start > self.day_started_at {
+    fn roll_day_if_needed(&mut self, today: NaiveDate) {
+        if today > self.day_started_at {
             self.used_today_cents = 0;
-            self.day_started_at = today_start;
+            self.day_started_at = today;
         }
     }
 }
@@ -282,11 +308,13 @@ fn compute_state(used_today: u64, used_session: u64, limits: &BudgetLimits) -> B
     state
 }
 
-fn start_of_utc_day(t: DateTime<Utc>) -> DateTime<Utc> {
-    let date = t.date_naive();
+/// Convert a [`NaiveDate`] to the UTC instant at its 00:00. Used for the
+/// `BudgetStatus::day_started_at` field, which still reports an absolute
+/// timestamp for downstream consumers.
+fn start_of_utc_day_for(date: NaiveDate) -> DateTime<Utc> {
     date.and_hms_opt(0, 0, 0)
         .map(|ndt| ndt.and_utc())
-        .unwrap_or(t)
+        .unwrap_or_else(Utc::now)
 }
 
 /// Convert an elapsed [`Duration`] into a friendlier `Hh Mm` string.
@@ -299,6 +327,43 @@ fn human_duration(d: Duration) -> String {
         format!("{h}h {m}m")
     } else {
         format!("{m}m")
+    }
+}
+
+#[cfg(test)]
+pub struct TestClock {
+    today: std::sync::Mutex<NaiveDate>,
+    now: std::sync::Mutex<DateTime<Utc>>,
+}
+
+#[cfg(test)]
+impl TestClock {
+    pub fn new(date: NaiveDate) -> Self {
+        let now = date
+            .and_hms_opt(12, 0, 0)
+            .map(|ndt| ndt.and_utc())
+            .unwrap_or_else(Utc::now);
+        Self {
+            today: std::sync::Mutex::new(date),
+            now: std::sync::Mutex::new(now),
+        }
+    }
+
+    pub fn set(&self, date: NaiveDate) {
+        *self.today.lock().unwrap() = date;
+        if let Some(ndt) = date.and_hms_opt(12, 0, 0) {
+            *self.now.lock().unwrap() = ndt.and_utc();
+        }
+    }
+}
+
+#[cfg(test)]
+impl Clock for TestClock {
+    fn today(&self) -> NaiveDate {
+        *self.today.lock().unwrap()
+    }
+    fn now(&self) -> DateTime<Utc> {
+        *self.now.lock().unwrap()
     }
 }
 
@@ -388,19 +453,36 @@ mod tests {
 
     #[tokio::test]
     async fn day_rollover_resets_daily_counter() {
-        let mgr = BudgetManager::new(BudgetLimits {
-            daily_cents: Some(1000),
-            session_cents: None,
-        });
-        let day1 = Utc.with_ymd_and_hms(2026, 4, 17, 12, 0, 0).unwrap();
-        mgr.record_at(entry(Provider::Fal, 500), day1).await;
+        // Deterministic: inject a TestClock so day-boundary behaviour never
+        // depends on wall-clock time. Previously this test used
+        // `record_at`/`status_at`, which still worked fine for the math but
+        // ran alongside a manager whose `day_started_at` was initialised from
+        // `Utc::now()` — flaky when the test body crossed a UTC midnight.
+        let day1 = NaiveDate::from_ymd_opt(2026, 4, 17).unwrap();
+        let day2 = NaiveDate::from_ymd_opt(2026, 4, 18).unwrap();
+        let clock = Arc::new(TestClock::new(day1));
+        let mgr = BudgetManager::with_clock(
+            BudgetLimits {
+                daily_cents: Some(1000),
+                session_cents: None,
+            },
+            clock.clone(),
+        );
 
-        // Jump to next UTC day
-        let day2 = day1 + ChronoDuration::days(1);
-        let s = mgr.status_at(day2).await;
-        assert_eq!(s.used_today_cents, 0, "daily counter should have rolled");
-        // Session counter persists across day rollover
-        assert_eq!(s.used_session_cents, 500);
+        mgr.record(entry(Provider::Fal, 500)).await;
+        let before = mgr.status().await;
+        assert_eq!(before.used_today_cents, 500);
+        assert_eq!(before.used_session_cents, 500);
+
+        // Advance to the next UTC day without touching the wall clock.
+        clock.set(day2);
+        let after = mgr.status().await;
+        assert_eq!(
+            after.used_today_cents, 0,
+            "daily counter should have rolled"
+        );
+        // Session counter persists across day rollover.
+        assert_eq!(after.used_session_cents, 500);
     }
 
     #[tokio::test]

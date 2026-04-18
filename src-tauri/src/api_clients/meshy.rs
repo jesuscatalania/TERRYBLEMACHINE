@@ -31,9 +31,11 @@ const TEXT_3D_PATH: &str = "/openapi/v2/text-to-3d";
 const IMAGE_3D_PATH: &str = "/openapi/v2/image-to-3d";
 
 /// Upper bound for task-status poll iterations. With exponential back-off from
-/// 2s to 15s this allows for roughly 5 minutes of waiting before we surrender
-/// and bubble a `Timeout` to the router (which may fall back).
-const DEFAULT_POLL_MAX_ATTEMPTS: u32 = 60;
+/// 2s to 15s this sums to roughly 4 minutes of waiting before we surrender
+/// and bubble a `Timeout` to the router (which may fall back). Matches
+/// Meshy's documented "typical 2-5 min" mesh generation window — longer
+/// jobs are better handled by a fresh request once the user returns.
+const DEFAULT_POLL_MAX_ATTEMPTS: u32 = 20;
 const DEFAULT_POLL_INITIAL_DELAY: Duration = Duration::from_secs(2);
 const DEFAULT_POLL_MAX_DELAY: Duration = Duration::from_secs(15);
 
@@ -218,6 +220,11 @@ impl MeshyClient {
         let mut delay = self.poll_initial_delay;
 
         for _ in 0..self.poll_max_attempts {
+            // Rate-limit every poll so concurrent mesh jobs can't burst GETs
+            // past Meshy's per-second cap. `RateLimiter::unlimited()` (used by
+            // `for_test*`) has `usize::MAX >> 4` permits and no refill, so
+            // this is a zero-cost no-op in tests.
+            self.rate.acquire().await;
             let resp = self
                 .http
                 .get(&url)
