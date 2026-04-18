@@ -1,11 +1,10 @@
-import { Sparkles } from "lucide-react";
 import { useRef, useState } from "react";
 import { BrandKitDialog, type BrandKitDialogInput } from "@/components/typography/BrandKitDialog";
 import { LogoGallery } from "@/components/typography/LogoGallery";
 import { SvgEditor, type SvgEditorHandle } from "@/components/typography/SvgEditor";
 import { TextLogoControls, type TextStyle } from "@/components/typography/TextLogoControls";
+import { TypographyHeader } from "@/components/typography/TypographyHeader";
 import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
 import { type BrandKitInput, exportBrandKit } from "@/lib/brandKitCommands";
 import { generateLogoVariants, type LogoStyle, type LogoVariant } from "@/lib/logoCommands";
 import { vectorizeImage } from "@/lib/vectorizerCommands";
@@ -128,53 +127,16 @@ export function TypographyPage() {
 
   return (
     <div className="grid h-full grid-rows-[auto_1fr]">
-      <div className="flex flex-col gap-3 border-neutral-dark-700 border-b p-6">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-2xs text-accent-500 uppercase tracking-label-wide">
-            MOD—05 · TYPE & LOGO
-          </span>
-        </div>
-        <div className="flex items-end gap-2">
-          <div className="flex-1">
-            <Input
-              label="Describe the logo"
-              id="logo-prompt"
-              placeholder={'"TERRYBLEMACHINE" — AI design tool, bold mark'}
-              value={prompt}
-              onValueChange={setPrompt}
-            />
-          </div>
-          <label className="flex flex-col gap-1">
-            <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
-              Style
-            </span>
-            <select
-              aria-label="Logo style"
-              value={style}
-              onChange={(e) => setStyle(e.target.value as LogoStyle)}
-              className="rounded-xs border border-neutral-dark-700 bg-neutral-dark-900 px-2 py-1 text-neutral-dark-100 text-xs"
-            >
-              <option value="minimalist">Minimalist</option>
-              <option value="wordmark">Wordmark</option>
-              <option value="emblem">Emblem</option>
-              <option value="mascot">Mascot</option>
-            </select>
-          </label>
-          <div className="w-48">
-            <Input
-              label="Palette"
-              id="logo-palette"
-              placeholder="monochrome / warm / sunset"
-              value={palette}
-              onValueChange={setPalette}
-            />
-          </div>
-          <Button variant="primary" onClick={handleGenerate} disabled={!prompt.trim() || busy}>
-            <Sparkles className="h-3 w-3" strokeWidth={1.5} aria-hidden="true" />
-            {busy ? "Generating…" : "Generate 6 variants"}
-          </Button>
-        </div>
-      </div>
+      <TypographyHeader
+        prompt={prompt}
+        onPromptChange={setPrompt}
+        style={style}
+        onStyleChange={setStyle}
+        palette={palette}
+        onPaletteChange={setPalette}
+        busy={busy}
+        onGenerate={handleGenerate}
+      />
 
       <div className="grid min-h-0 grid-cols-[1fr_18rem]">
         <LogoGallery

@@ -201,7 +201,11 @@ mod tests {
             source_png_path: PathBuf::from("x.png"),
             brand_name: "Acme".into(),
             primary_color: "#e85d2d".into(),
-            accent_color: "#0E0E11".into(),
+            // Style guide never sees raw user input — types::validate_input
+            // normalizes hex colors to lowercase at the pipeline boundary,
+            // so feed it the post-validation form here. That lets us assert
+            // a single canonical case instead of an either-or workaround.
+            accent_color: "#0e0e11".into(),
             font: "Inter".into(),
         };
         let html = build_style_guide(&input);
@@ -209,10 +213,8 @@ mod tests {
         assert!(html.trim_start().starts_with("<!doctype html>"));
         // Primary color appears inside a `style="background: …;"` attribute.
         assert!(html.contains("background: #e85d2d"));
-        // Accent color likewise. Allow either preserved case (current code
-        // preserves what the caller passed in, since it's already escaped
-        // as text rather than attribute-normalized).
-        assert!(html.contains("background: #0E0E11") || html.contains("background: #0e0e11"));
+        // Accent color likewise — lowercased by the upstream validator.
+        assert!(html.contains("background: #0e0e11"));
         // The SVG lands inside the `.logo` div, not somewhere else in the
         // document. This catches a regression where `logo_svg` drifts out
         // of context after a refactor. Brand_name's `"` inside the SVG

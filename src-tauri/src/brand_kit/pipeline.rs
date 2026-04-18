@@ -53,12 +53,16 @@ const SIZES: &[(u32, &str)] = &[
 
 #[async_trait]
 impl BrandKitBuilder for StandardBrandKit {
-    async fn build(&self, input: BrandKitInput) -> Result<BrandKitResult, BrandKitError> {
+    async fn build(&self, mut input: BrandKitInput) -> Result<BrandKitResult, BrandKitError> {
         // Pure-validation checks first — cheap, Tokio-thread only, so the
         // rejection paths don't pay for a spawn_blocking hop. Hex-color
         // validation runs FIRST because it's the strongest gate against
         // untrusted inputs reaching the HTML/CSS formatter downstream.
-        types::validate_input(&input)?;
+        // `validate_input` also normalizes the hex colors to lowercase in
+        // place, so downstream `style_guide::build_style_guide` sees a
+        // single case — no `contains("#0E…") || contains("#0e…")` dance
+        // at call sites.
+        types::validate_input(&mut input)?;
         if input.logo_svg.trim().is_empty() {
             return Err(BrandKitError::InvalidInput("logo_svg empty".into()));
         }

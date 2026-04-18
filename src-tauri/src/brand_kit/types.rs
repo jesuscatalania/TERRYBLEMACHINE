@@ -90,9 +90,14 @@ impl From<zip::result::ZipError> for BrandKitError {
 /// surface for Phase 8 consumers that may embed `style-guide.html` inside a
 /// Tauri webview: here we reject any color that isn't a well-formed hex
 /// literal, and there we escape every other string that reaches the HTML.
-pub fn validate_input(input: &BrandKitInput) -> Result<(), BrandKitError> {
+pub fn validate_input(input: &mut BrandKitInput) -> Result<(), BrandKitError> {
     validate_hex_color(&input.primary_color, "primary_color")?;
     validate_hex_color(&input.accent_color, "accent_color")?;
+    // Normalize to lowercase so downstream rendering (style_guide.html,
+    // test assertions) doesn't have to handle case variants. The hex is
+    // already validated ASCII so `to_ascii_lowercase` is safe + fast.
+    input.primary_color = input.primary_color.to_ascii_lowercase();
+    input.accent_color = input.accent_color.to_ascii_lowercase();
     Ok(())
 }
 
@@ -146,31 +151,44 @@ mod tests {
             ("#E85D2D", "#0e0e11"),
             ("#FF0000AA", "#00FF0088"),
         ] {
-            validate_input(&sample_input(p, a)).expect("should accept valid hex");
+            let mut input = sample_input(p, a);
+            validate_input(&mut input).expect("should accept valid hex");
         }
     }
 
     #[test]
     fn validate_input_rejects_missing_hash() {
-        let err = validate_input(&sample_input("e85d2d", "#000")).unwrap_err();
+        let mut input = sample_input("e85d2d", "#000");
+        let err = validate_input(&mut input).unwrap_err();
         assert!(matches!(err, BrandKitError::InvalidInput(_)));
     }
 
     #[test]
     fn validate_input_rejects_wrong_digit_count() {
-        let err = validate_input(&sample_input("#ffff", "#000")).unwrap_err();
+        let mut input = sample_input("#ffff", "#000");
+        let err = validate_input(&mut input).unwrap_err();
         assert!(matches!(err, BrandKitError::InvalidInput(_)));
     }
 
     #[test]
     fn validate_input_rejects_non_hex_chars() {
-        let err = validate_input(&sample_input("#gggggg", "#000")).unwrap_err();
+        let mut input = sample_input("#gggggg", "#000");
+        let err = validate_input(&mut input).unwrap_err();
         assert!(matches!(err, BrandKitError::InvalidInput(_)));
     }
 
     #[test]
     fn validate_input_rejects_empty_accent() {
-        let err = validate_input(&sample_input("#000", "")).unwrap_err();
+        let mut input = sample_input("#000", "");
+        let err = validate_input(&mut input).unwrap_err();
         assert!(matches!(err, BrandKitError::InvalidInput(_)));
+    }
+
+    #[test]
+    fn validate_input_normalizes_hex_to_lowercase() {
+        let mut input = sample_input("#E85D2D", "#0E0E11");
+        validate_input(&mut input).unwrap();
+        assert_eq!(input.primary_color, "#e85d2d");
+        assert_eq!(input.accent_color, "#0e0e11");
     }
 }
