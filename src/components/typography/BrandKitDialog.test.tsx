@@ -66,20 +66,16 @@ describe("BrandKitDialog", () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     const onSubmit = vi.fn();
-    const { rerender } = render(
-      <BrandKitDialog open={true} onClose={onClose} onSubmit={onSubmit} />,
-    );
+    render(<BrandKitDialog open={true} onClose={onClose} onSubmit={onSubmit} />);
 
-    // Type into the fields, then cancel — onClose must fire.
+    // Type into the fields, then cancel. Cancel's handler runs `reset()`
+    // synchronously before `onClose()` fires, so the DOM inputs must be
+    // back to empty on the same tick.
     await user.type(screen.getByLabelText(/brand name/i), "Acme");
     await user.type(screen.getByLabelText(/destination directory/i), "/tmp/out");
     await user.click(screen.getByRole("button", { name: /cancel/i }));
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onSubmit).not.toHaveBeenCalled();
-
-    // Re-open the dialog — prior form state must be reset (empty inputs).
-    rerender(<BrandKitDialog open={false} onClose={onClose} onSubmit={onSubmit} />);
-    rerender(<BrandKitDialog open={true} onClose={onClose} onSubmit={onSubmit} />);
     expect(screen.getByLabelText(/brand name/i)).toHaveValue("");
     expect(screen.getByLabelText(/destination directory/i)).toHaveValue("");
   });

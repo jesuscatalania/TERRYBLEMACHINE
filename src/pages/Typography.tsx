@@ -181,8 +181,13 @@ export function TypographyPage() {
           variants={variants}
           selectedUrl={selectedUrl}
           onSelect={(url) => {
-            setSelectedUrl(url);
-            setVectorized(false);
+            // Only reset `vectorized` when the selection actually changes.
+            // Re-clicking the already-selected variant shouldn't wipe a
+            // successful vectorize.
+            if (url !== selectedUrl) {
+              setSelectedUrl(url);
+              setVectorized(false);
+            }
           }}
         />
         <div className="flex min-h-0 flex-col gap-3 border-neutral-dark-700 border-l p-3">
