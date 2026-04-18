@@ -38,7 +38,8 @@ export function LightingPreset({ name }: PresetProps) {
   return (
     <>
       <ambientLight intensity={0.1} />
-      <spotLight position={[5, 8, 3]} angle={0.4} intensity={3} color="#ffd599" castShadow />
+      {/* Note: shadow maps are not enabled on the Canvas. Re-add castShadow when shadows ship. */}
+      <spotLight position={[5, 8, 3]} angle={0.4} intensity={3} color="#ffd599" />
       <Environment preset={presetEnvFor(name)} background={false} />
     </>
   );

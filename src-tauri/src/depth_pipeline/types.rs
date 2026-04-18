@@ -12,7 +12,6 @@ use thiserror::Error;
 // ─── Input ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub struct DepthInput {
     /// URL (or `file://…`) pointing at the source image. Data-URLs are
     /// rejected at the pipeline boundary because Replicate's depth-anything

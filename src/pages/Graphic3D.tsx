@@ -120,7 +120,11 @@ export function Graphic3DPage() {
       });
       return;
     }
-    const filename = `${Date.now()}-mesh.glb`;
+    // Short random suffix defends against sub-ms timestamp collisions when
+    // the user double-clicks Export.
+    const suffix = Math.random().toString(36).slice(2, 8);
+    const filename = `${Date.now()}-${suffix}-mesh.glb`;
+    // macOS path separator; if Windows port happens, switch to a Rust-side join.
     const targetPath = `${currentProject.path}/exports/${filename}`;
     try {
       const saved = await exportMesh(meshResult.local_path, targetPath);

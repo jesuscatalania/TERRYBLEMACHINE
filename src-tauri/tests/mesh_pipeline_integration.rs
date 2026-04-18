@@ -18,7 +18,7 @@ use terryblemachine_lib::ai_router::{
     AiClient, AiRequest, AiResponse, AiRouter, Complexity, DefaultRoutingStrategy, Model,
     PriorityQueue, Provider, ProviderError, ProviderUsage, RetryPolicy,
 };
-use terryblemachine_lib::mesh_pipeline::commands::{export_mesh, MeshIpcError};
+use terryblemachine_lib::mesh_pipeline::commands::{export_mesh_inner, MeshIpcError};
 use terryblemachine_lib::mesh_pipeline::{
     MeshImageInput, MeshPipeline, MeshPipelineError, MeshTextInput, RouterMeshPipeline,
 };
@@ -329,18 +329,20 @@ async fn image_to_mesh_quick_preview_routes_via_simple_complexity() {
 
 // ─── export_mesh ────────────────────────────────────────────────────────
 //
-// `export_mesh` is a plain (non-async) `#[tauri::command]` that copies a
-// cached GLB to a user-chosen target. The tests below drive it directly —
-// no State, no AiRouter — because its job is purely filesystem-bound.
+// `export_mesh_inner` is the helper the `#[tauri::command]` wraps — the tests
+// below drive it directly so we can pass a plain `projects_root` without
+// building a Tauri `State<ProjectStoreState>`. Its job is filesystem-bound
+// plus a path-traversal guard that mirrors FU #101's `resolve_assets_dir`.
 
 #[test]
 fn export_mesh_copies_cached_glb_to_target() {
     let tmp = TempDir::new().unwrap();
-    let src = tmp.path().join("cached.glb");
+    let projects_root = tmp.path();
+    let src = projects_root.join("cached.glb");
     std::fs::write(&src, b"glTF\x02\x00\x00\x00test").unwrap();
-    let target = tmp.path().join("exports/out.glb");
+    let target = projects_root.join("exports/out.glb");
 
-    let result = export_mesh(src.clone(), target.clone()).expect("export ok");
+    let result = export_mesh_inner(projects_root, &src, &target).expect("export ok");
     assert_eq!(result, target);
     assert!(target.exists());
     assert_eq!(std::fs::read(&target).unwrap(), b"glTF\x02\x00\x00\x00test");
@@ -349,23 +351,80 @@ fn export_mesh_copies_cached_glb_to_target() {
 #[test]
 fn export_mesh_creates_parent_dir() {
     let tmp = TempDir::new().unwrap();
-    let src = tmp.path().join("cached.glb");
+    let projects_root = tmp.path();
+    let src = projects_root.join("cached.glb");
     std::fs::write(&src, b"GLB").unwrap();
-    let target = tmp.path().join("nested/dir/chain/out.glb");
+    let target = projects_root.join("nested/dir/chain/out.glb");
 
-    export_mesh(src, target.clone()).expect("export ok");
+    export_mesh_inner(projects_root, &src, &target).expect("export ok");
     assert!(target.exists());
 }
 
 #[test]
 fn export_mesh_rejects_missing_source() {
     let tmp = TempDir::new().unwrap();
-    let src = tmp.path().join("does-not-exist.glb");
-    let target = tmp.path().join("out.glb");
+    let projects_root = tmp.path();
+    let src = projects_root.join("does-not-exist.glb");
+    let target = projects_root.join("out.glb");
 
-    let err = export_mesh(src, target).expect_err("should fail");
+    let err = export_mesh_inner(projects_root, &src, &target).expect_err("should fail");
     match err {
         MeshIpcError::InvalidInput(msg) => assert!(msg.contains("not in cache")),
         other => panic!("wrong error variant: {other:?}"),
     }
+}
+
+#[test]
+fn export_mesh_rejects_target_outside_projects_root() {
+    let tmp = TempDir::new().unwrap();
+    let projects_root = tmp.path().join("projects");
+    std::fs::create_dir_all(&projects_root).unwrap();
+    let src = projects_root.join("cached.glb");
+    std::fs::write(&src, b"GLB").unwrap();
+    // Target lives outside projects_root — lexical check must reject it.
+    let outside = tmp.path().join("outside/out.glb");
+
+    let err = export_mesh_inner(&projects_root, &src, &outside).expect_err("should fail");
+    match err {
+        MeshIpcError::InvalidInput(msg) => assert!(
+            msg.contains("must be under projects_root"),
+            "unexpected msg: {msg}"
+        ),
+        other => panic!("wrong error variant: {other:?}"),
+    }
+    // Must NOT have created the outside directory tree.
+    assert!(!outside.parent().unwrap().exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn export_mesh_rejects_symlink_escape() {
+    use std::os::unix::fs::symlink;
+
+    let tmp = TempDir::new().unwrap();
+    let projects_root = tmp.path().join("projects");
+    std::fs::create_dir_all(&projects_root).unwrap();
+    let escape_target = tmp.path().join("escape");
+    std::fs::create_dir_all(&escape_target).unwrap();
+
+    let src = projects_root.join("cached.glb");
+    std::fs::write(&src, b"GLB").unwrap();
+
+    // <projects_root>/link → <tmp>/escape (outside projects_root).
+    // The lexical check passes because the path string starts with
+    // projects_root; only canonicalize catches the symlink escape.
+    let link = projects_root.join("link");
+    symlink(&escape_target, &link).unwrap();
+    let target = link.join("out.glb");
+
+    let err = export_mesh_inner(&projects_root, &src, &target).expect_err("should fail");
+    match err {
+        MeshIpcError::InvalidInput(msg) => assert!(
+            msg.contains("resolved outside projects_root"),
+            "unexpected msg: {msg}"
+        ),
+        other => panic!("wrong error variant: {other:?}"),
+    }
+    // Must NOT have written through the symlink.
+    assert!(!target.exists());
 }

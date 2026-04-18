@@ -15,7 +15,6 @@ use thiserror::Error;
 // ─── Inputs ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub struct MeshTextInput {
     pub prompt: String,
     #[serde(default)]
@@ -23,7 +22,6 @@ pub struct MeshTextInput {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub struct MeshImageInput {
     pub image_url: String,
     #[serde(default)]
