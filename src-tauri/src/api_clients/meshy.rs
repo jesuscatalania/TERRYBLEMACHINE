@@ -1,9 +1,10 @@
 //! Meshy Pro client (Text-to-3D + Image-to-3D).
 //!
-//! Follows the reference pattern established by
-//! [`super::claude`]: keychain-backed constructor + single `send_request`
-//! pipeline + wiremock unit tests. `execute` dispatches to different
-//! endpoints depending on the requested model.
+//! Follows the reference pattern established by [`super::claude`]:
+//! keychain-backed constructor + wiremock unit tests. `execute` dispatches
+//! on `Model` to either `send_text_3d` or `send_image_3d`, both of which
+//! share the `start_task` + `poll_task` helpers that POST then poll
+//! `GET {endpoint}/{task_id}` until Meshy reports `SUCCEEDED`.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -103,47 +104,6 @@ impl MeshyClient {
         c
     }
 
-    async fn send_request(
-        &self,
-        model: Model,
-        request: &AiRequest,
-        endpoint_path: &str,
-        body: Value,
-    ) -> Result<AiResponse, ProviderError> {
-        self.rate.acquire().await;
-        let key = get_api_key(&*self.key_store, KEYCHAIN_SERVICE)?;
-
-        let url = format!("{}{}", self.base_url, endpoint_path);
-        let resp = self
-            .http
-            .post(&url)
-            .bearer_auth(key)
-            .header("content-type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(map_reqwest_error)?;
-
-        let status = resp.status();
-        if !status.is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            return Err(map_http_error(status, &text));
-        }
-
-        let parsed: TaskResponse = resp.json().await.map_err(map_reqwest_error)?;
-
-        Ok(AiResponse {
-            request_id: request.id.clone(),
-            model,
-            output: json!({
-                "job_id": parsed.result,
-                "status": "queued",
-            }),
-            cost_cents: None,
-            cached: false,
-        })
-    }
-
     async fn send_text_3d(
         &self,
         model: Model,
@@ -185,18 +145,38 @@ impl MeshyClient {
             .payload
             .get("image_url")
             .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_owned();
-        let body = json!({
-            "image_url": image_url,
-        });
-        self.send_request(model, request, IMAGE_3D_PATH, body).await
+            .ok_or_else(|| {
+                ProviderError::Permanent("meshy image-to-3d: payload.image_url required".into())
+            })?;
+        let body = json!({ "image_url": image_url });
+
+        let task_id = self.start_task(IMAGE_3D_PATH, &body).await?;
+        let final_body = self.poll_task(&task_id, IMAGE_3D_PATH).await?;
+
+        let glb_url = final_body
+            .get("model_urls")
+            .and_then(|v| v.get("glb"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                ProviderError::Permanent("meshy image-to-3d: missing model_urls.glb".into())
+            })?;
+
+        Ok(AiResponse {
+            request_id: request.id.clone(),
+            model,
+            output: json!({
+                "job_id": task_id,
+                "glb_url": glb_url,
+                "status": "succeeded",
+            }),
+            cost_cents: None,
+            cached: false,
+        })
     }
 
     /// POST the body to `endpoint_path` and extract the `result` task id.
-    /// Shared between `send_text_3d` (polls after) and future image-to-3d
-    /// polling (T9). Kept separate from `send_request` because callers want
-    /// the task id rather than a stub "queued" response.
+    /// Shared between `send_text_3d` and `send_image_3d`; both poll the
+    /// returned task id via [`Self::poll_task`].
     async fn start_task(&self, endpoint_path: &str, body: &Value) -> Result<String, ProviderError> {
         self.rate.acquire().await;
         let key = get_api_key(&*self.key_store, KEYCHAIN_SERVICE)?;
@@ -529,6 +509,17 @@ mod tests {
             .mount(&server)
             .await;
 
+        // Polling now happens inline; immediately return SUCCEEDED with a GLB.
+        Mock::given(method("GET"))
+            .and(path(format!("{}/task-image-456", IMAGE_3D_PATH)))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "task-image-456",
+                "status": "SUCCEEDED",
+                "model_urls": { "glb": "https://fake.meshy/from-img.glb" }
+            })))
+            .mount(&server)
+            .await;
+
         let client = MeshyClient::for_test(key_store_with_key(), server.uri());
         let resp = client
             .execute(
@@ -541,6 +532,66 @@ mod tests {
         assert_eq!(
             resp.output.get("job_id").unwrap().as_str().unwrap(),
             "task-image-456"
+        );
+        assert_eq!(
+            resp.output.get("status").unwrap().as_str().unwrap(),
+            "succeeded"
+        );
+        assert_eq!(
+            resp.output.get("glb_url").unwrap().as_str().unwrap(),
+            "https://fake.meshy/from-img.glb"
+        );
+    }
+
+    #[tokio::test]
+    async fn image_to_3d_polls_until_succeeded_then_returns_glb_url() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path(IMAGE_3D_PATH))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "result": "i1" })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!("{}/i1", IMAGE_3D_PATH)))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "i1",
+                "status": "IN_PROGRESS",
+                "progress": 25
+            })))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!("{}/i1", IMAGE_3D_PATH)))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "i1",
+                "status": "SUCCEEDED",
+                "model_urls": { "glb": "https://fake.meshy/from-img.glb" }
+            })))
+            .mount(&server)
+            .await;
+
+        let client = MeshyClient::for_test(key_store_with_key(), server.uri());
+        let resp = client
+            .execute(Model::MeshyImage3D, &image_request("https://src/a.png"))
+            .await
+            .expect("image 3d polling succeeds");
+
+        assert_eq!(
+            resp.output.get("glb_url").and_then(|v| v.as_str()),
+            Some("https://fake.meshy/from-img.glb")
+        );
+        assert_eq!(
+            resp.output.get("status").and_then(|v| v.as_str()),
+            Some("succeeded")
+        );
+        assert_eq!(
+            resp.output.get("job_id").and_then(|v| v.as_str()),
+            Some("i1")
         );
     }
 
