@@ -1,6 +1,10 @@
+import { useState } from "react";
+import { CameraControls, type CameraMode } from "@/components/graphic3d/CameraControls";
 import { ThreeCanvas } from "@/components/graphic3d/ThreeCanvas";
 
 export function Graphic3DPage() {
+  const [cameraMode, setCameraMode] = useState<CameraMode>("perspective");
+
   return (
     <div className="grid h-full grid-rows-[auto_1fr]">
       <div className="flex flex-col gap-3 border-neutral-dark-700 border-b p-6">
@@ -15,8 +19,9 @@ export function Graphic3DPage() {
           <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
             Tools
           </span>
+          <CameraControls mode={cameraMode} onModeChange={setCameraMode} />
         </div>
-        <ThreeCanvas>
+        <ThreeCanvas cameraMode={cameraMode}>
           <mesh>
             <boxGeometry args={[1, 1, 1]} />
             <meshStandardMaterial color="#e85d2d" />
