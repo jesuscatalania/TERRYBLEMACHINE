@@ -36,12 +36,10 @@ describe("App", () => {
     expect(useAppStore.getState().activeModule).toBe("website");
   });
 
-  it.each([
-    ["/typography", "Type & Logo", "typography"],
-  ] as const)("renders %s placeholder and syncs store", (path, label, id) => {
-    renderAt(path);
-    expect(screen.getByText(new RegExp(`Coming soon — ${label}`))).toBeInTheDocument();
-    expect(useAppStore.getState().activeModule).toBe(id);
+  it("renders the Typography page at /typography", () => {
+    renderAt("/typography");
+    expect(screen.getByText(/MOD—05 · TYPE & LOGO/)).toBeInTheDocument();
+    expect(useAppStore.getState().activeModule).toBe("typography");
   });
 
   it("renders the Website builder at /website", () => {
