@@ -34,6 +34,15 @@ const DEFAULT_RATE_PER_SEC: usize = 10;
 /// hard-coding it here keeps the client self-contained for Schritt 2.2.
 const FLUX_DEV_VERSION: &str = "f2ab8a5569070ef6f6b2f0ede5a3f1a7fbfe0a5e1f6fb1bdf7d55c1e0e1b1b0b";
 
+/// Replicate model version for `depth-anything/depth-anything-v2-large`.
+///
+/// TODO(phase-5): Verify this hash against
+/// <https://replicate.com/depth-anything/depth-anything-v2-large/api>. If
+/// Replicate's model-slug routing (without explicit version) becomes
+/// available on the `/v1/predictions` endpoint, prefer that over a hardcoded
+/// hash — more stable across upgrades.
+const DEPTH_ANYTHING_V2_VERSION: &str = "2aa0d0d2d4e8a6f5e82a83a69e8fafb2afaec6a7";
+
 pub struct ReplicateClient {
     http: Client,
     base_url: String,
@@ -81,7 +90,31 @@ impl ReplicateClient {
     fn version_for(model: Model) -> Option<&'static str> {
         match model {
             Model::ReplicateFluxDev => Some(FLUX_DEV_VERSION),
+            Model::ReplicateDepthAnythingV2 => Some(DEPTH_ANYTHING_V2_VERSION),
             _ => None,
+        }
+    }
+
+    /// Shape the `input` object for a given model. Replicate's predictions
+    /// endpoint takes `{ version, input }` where `input` is model-specific.
+    fn input_for(model: Model, request: &AiRequest) -> Result<Value, ProviderError> {
+        match model {
+            Model::ReplicateFluxDev => Ok(json!({ "prompt": request.prompt })),
+            Model::ReplicateDepthAnythingV2 => {
+                let image_url = request
+                    .payload
+                    .get("image_url")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        ProviderError::Permanent(
+                            "depth-anything: image_url required in payload".into(),
+                        )
+                    })?;
+                Ok(json!({ "image": image_url }))
+            }
+            _ => Err(ProviderError::Permanent(format!(
+                "unsupported model {model:?}"
+            ))),
         }
     }
 
@@ -94,18 +127,24 @@ impl ReplicateClient {
         let key = get_api_key(&*self.key_store, KEYCHAIN_SERVICE)?;
         let version = Self::version_for(model)
             .ok_or_else(|| ProviderError::Permanent(format!("unsupported model {model:?}")))?;
+        let input = Self::input_for(model, request)?;
 
         let body = json!({
             "version": version,
-            "input": { "prompt": request.prompt },
+            "input": input,
         });
 
         let url = format!("{}/v1/predictions", self.base_url);
+        // `Prefer: wait` asks Replicate to block up to 60s for the prediction
+        // to finish and inline the result in the response. Depth-Anything v2
+        // typically returns in <30s, which keeps us well under that ceiling
+        // and avoids a separate polling loop for the common case.
         let resp = self
             .http
             .post(&url)
             .header("authorization", format!("Token {key}"))
             .header("content-type", "application/json")
+            .header("Prefer", "wait")
             .json(&body)
             .send()
             .await
@@ -315,8 +354,79 @@ mod tests {
         let client =
             ReplicateClient::for_test(key_store_with_key(), "http://localhost".to_string());
         assert!(client.supports(Model::ReplicateFluxDev));
+        assert!(client.supports(Model::ReplicateDepthAnythingV2));
         assert!(!client.supports(Model::FalFluxPro));
         assert!(!client.supports(Model::ClaudeSonnet));
         assert!(!client.supports(Model::Kling20));
+    }
+
+    #[tokio::test]
+    async fn depth_anything_v2_posts_version_and_image() {
+        use wiremock::matchers::body_partial_json;
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/predictions"))
+            .and(header("authorization", "Token r8-test"))
+            .and(header("Prefer", "wait"))
+            .and(body_partial_json(json!({
+                "version": DEPTH_ANYTHING_V2_VERSION,
+                "input": { "image": "https://src/a.png" },
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "pred-depth-1",
+                "status": "succeeded",
+                "urls": {
+                    "get": "https://api.replicate.com/v1/predictions/pred-depth-1",
+                    "cancel": "https://api.replicate.com/v1/predictions/pred-depth-1/cancel",
+                },
+                "output": "https://fake.replicate/depth.png",
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = ReplicateClient::for_test(key_store_with_key(), server.uri());
+        let req = AiRequest {
+            id: "depth-r1".into(),
+            task: TaskKind::DepthMap,
+            priority: Priority::Normal,
+            complexity: Complexity::Medium,
+            prompt: String::new(),
+            payload: json!({ "image_url": "https://src/a.png" }),
+        };
+        let resp = client
+            .execute(Model::ReplicateDepthAnythingV2, &req)
+            .await
+            .expect("depth prediction succeeds");
+
+        assert_eq!(resp.model, Model::ReplicateDepthAnythingV2);
+        assert_eq!(
+            resp.output
+                .get("output")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default(),
+            "https://fake.replicate/depth.png"
+        );
+    }
+
+    #[tokio::test]
+    async fn depth_anything_v2_requires_image_url() {
+        let server = MockServer::start().await;
+        let client = ReplicateClient::for_test(key_store_with_key(), server.uri());
+        // No image_url in payload → client must fail fast, not hit the server.
+        let req = AiRequest {
+            id: "depth-bad".into(),
+            task: TaskKind::DepthMap,
+            priority: Priority::Normal,
+            complexity: Complexity::Medium,
+            prompt: String::new(),
+            payload: json!({}),
+        };
+        let err = client
+            .execute(Model::ReplicateDepthAnythingV2, &req)
+            .await
+            .expect_err("missing image_url must be a Permanent error");
+        assert!(matches!(err, ProviderError::Permanent(_)));
     }
 }

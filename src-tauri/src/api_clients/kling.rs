@@ -136,7 +136,8 @@ impl KlingClient {
             | TaskKind::Logo
             | TaskKind::VideoMontage
             | TaskKind::Text3D
-            | TaskKind::Image3D => {
+            | TaskKind::Image3D
+            | TaskKind::DepthMap => {
                 return Err(ProviderError::Permanent(format!(
                     "kling: unsupported task {:?}",
                     request.task

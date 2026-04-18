@@ -97,6 +97,9 @@ pub fn cost_cents_for(model: Model) -> u64 {
         Model::FalRealEsrgan => 1,
         Model::FalFluxFill => 3,
         Model::ReplicateFluxDev => 3,
+        // Depth-Anything v2 large on Replicate: ≈ $0.008 per prediction,
+        // rounded up to 1¢.
+        Model::ReplicateDepthAnythingV2 => 1,
     }
 }
 

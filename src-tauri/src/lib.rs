@@ -1,6 +1,7 @@
 pub mod ai_router;
 pub mod api_clients;
 pub mod code_generator;
+pub mod depth_pipeline;
 pub mod exporter;
 pub mod image_pipeline;
 pub mod keychain;
@@ -16,6 +17,8 @@ use ai_router::commands::AiRouterState;
 use ai_router::{AiRouter, DefaultRoutingStrategy, PriorityQueue, RetryPolicy};
 use code_generator::commands::CodeGeneratorState;
 use code_generator::{CodeGenerator, StubCodeGenerator};
+use depth_pipeline::commands::DepthPipelineState;
+use depth_pipeline::{DepthPipeline, RouterDepthPipeline};
 use image_pipeline::commands::ImagePipelineState;
 use image_pipeline::{ImagePipeline, RouterImagePipeline};
 use keychain::commands::KeyStoreState;
@@ -109,6 +112,14 @@ pub fn run() {
                     .with_taste_engine(Arc::clone(&engine)),
             );
             app.manage(ImagePipelineState::new(pipeline));
+
+            // Depth-map pipeline — routed through the same AiRouter. Task
+            // DepthMap → Model ReplicateDepthAnythingV2 in the default
+            // strategy. No taste-engine enrichment: depth inference is
+            // deterministic wrt. the input image.
+            let depth: Arc<dyn DepthPipeline> =
+                Arc::new(RouterDepthPipeline::new(Arc::clone(&ai_router_for_setup)));
+            app.manage(DepthPipelineState::new(depth));
             Ok(())
         })
         .manage(KeyStoreState::new(keystore))
@@ -145,6 +156,7 @@ pub fn run() {
             image_pipeline::commands::upscale_image,
             image_pipeline::commands::generate_variants,
             image_pipeline::commands::inpaint_image,
+            depth_pipeline::commands::generate_depth,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

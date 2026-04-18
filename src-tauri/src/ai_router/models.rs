@@ -48,6 +48,8 @@ pub enum Model {
     FalFluxFill,
     // Replicate (catch-all; the slug specifies the underlying model)
     ReplicateFluxDev,
+    /// depth-anything/depth-anything-v2-large on Replicate.
+    ReplicateDepthAnythingV2,
 }
 
 impl Model {
@@ -64,7 +66,7 @@ impl Model {
             Self::FalFluxPro | Self::FalSdxl | Self::FalRealEsrgan | Self::FalFluxFill => {
                 Provider::Fal
             }
-            Self::ReplicateFluxDev => Provider::Replicate,
+            Self::ReplicateFluxDev | Self::ReplicateDepthAnythingV2 => Provider::Replicate,
         }
     }
 }
@@ -97,6 +99,8 @@ pub enum TaskKind {
     Image3D,
     /// Image analysis via a vision-capable text model (Claude Vision).
     ImageAnalysis,
+    /// Image → depth map PNG (single-channel, brighter = closer).
+    DepthMap,
 }
 
 /// Priority within the router's queue. Higher variants are dequeued first.

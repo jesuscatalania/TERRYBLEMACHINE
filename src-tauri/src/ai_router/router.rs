@@ -88,6 +88,9 @@ impl RoutingStrategy for DefaultRoutingStrategy {
             // Vision analysis — Claude Sonnet leads; Haiku is the cheaper
             // fallback for simple reference-image extraction.
             (ImageAnalysis, _) => RouteDecision::with_fallbacks(ClaudeSonnet, vec![ClaudeHaiku]),
+
+            // Depth maps — only Depth-Anything v2 on Replicate for now.
+            (DepthMap, _) => RouteDecision::new(ReplicateDepthAnythingV2),
         }
     }
 }
@@ -246,6 +249,13 @@ mod tests {
         let d = DefaultRoutingStrategy.select(&req(TaskKind::ImageAnalysis, Complexity::Medium));
         assert_eq!(d.primary, Model::ClaudeSonnet);
         assert_eq!(d.fallbacks, vec![Model::ClaudeHaiku]);
+    }
+
+    #[test]
+    fn depth_map_routes_to_depth_anything_v2() {
+        let d = DefaultRoutingStrategy.select(&req(TaskKind::DepthMap, Complexity::Medium));
+        assert_eq!(d.primary, Model::ReplicateDepthAnythingV2);
+        assert!(d.fallbacks.is_empty());
     }
 
     // ── Retry policy ──────────────────────────────────────────────────────
