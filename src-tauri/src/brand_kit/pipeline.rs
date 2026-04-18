@@ -58,16 +58,13 @@ impl BrandKitBuilder for StandardBrandKit {
             )));
         }
 
-        // Style-guide generation is trivial (string concat) for now — pulled
-        // out to avoid forcing extra clones into the blocking closure.
-        let style_guide_html = super::style_guide::build_style_guide(&input);
-
-        let source_png_path = input.source_png_path;
-        let logo_svg_bytes = input.logo_svg.into_bytes();
-
-        let assets =
-            tokio::task::spawn_blocking(move || -> Result<Vec<BrandKitAsset>, BrandKitError> {
-                let source_bytes = std::fs::read(&source_png_path)
+        // Move the whole input into the blocking closure so we can also
+        // build the style-guide HTML there and push its asset alongside the
+        // rasters — keeps ordering tidy (style-guide last) without a second
+        // allocation pass outside the closure.
+        let (assets, style_guide_html) = tokio::task::spawn_blocking(
+            move || -> Result<(Vec<BrandKitAsset>, String), BrandKitError> {
+                let source_bytes = std::fs::read(&input.source_png_path)
                     .map_err(|e| BrandKitError::Io(e.to_string()))?;
                 let img = image::load_from_memory(&source_bytes)
                     .map_err(|e| BrandKitError::Image(e.to_string()))?;
@@ -77,7 +74,7 @@ impl BrandKitBuilder for StandardBrandKit {
                 // Pass-through SVG — preserves any edits made upstream.
                 assets.push(BrandKitAsset {
                     filename: "logo.svg".into(),
-                    bytes: logo_svg_bytes,
+                    bytes: input.logo_svg.as_bytes().to_vec(),
                 });
 
                 // Raster sizes — original palette, Lanczos3 resample for
@@ -138,10 +135,20 @@ impl BrandKitBuilder for StandardBrandKit {
                     bytes: inv_buf,
                 });
 
-                Ok(assets)
-            })
-            .await
-            .map_err(|e| BrandKitError::Image(format!("join error: {e}")))??;
+                // Style-guide HTML. Built last so it lives at the end of
+                // the asset list (matches the consumer-facing ordering the
+                // T7 ZIP expects). Cheap `format!` string concat.
+                let style_guide_html = super::style_guide::build_style_guide(&input);
+                assets.push(BrandKitAsset {
+                    filename: "style-guide.html".into(),
+                    bytes: style_guide_html.as_bytes().to_vec(),
+                });
+
+                Ok((assets, style_guide_html))
+            },
+        )
+        .await
+        .map_err(|e| BrandKitError::Image(format!("join error: {e}")))??;
 
         Ok(BrandKitResult {
             assets,
