@@ -5,6 +5,7 @@ pub mod depth_pipeline;
 pub mod exporter;
 pub mod image_pipeline;
 pub mod keychain;
+pub mod logo_pipeline;
 pub mod mesh_pipeline;
 pub mod projects;
 pub mod remotion;
@@ -27,6 +28,8 @@ use depth_pipeline::{DepthPipeline, RouterDepthPipeline};
 use image_pipeline::commands::ImagePipelineState;
 use image_pipeline::{ImagePipeline, RouterImagePipeline};
 use keychain::commands::KeyStoreState;
+use logo_pipeline::commands::LogoPipelineState;
+use logo_pipeline::{LogoPipeline, RouterLogoPipeline};
 use mesh_pipeline::commands::MeshPipelineState;
 use mesh_pipeline::{MeshPipeline, RouterMeshPipeline};
 use projects::commands::{resolve_default_root, ProjectStoreState};
@@ -170,6 +173,15 @@ pub fn run() {
                 Arc::new(RouterMeshPipeline::new(Arc::clone(&ai_router_for_setup)));
             app.manage(MeshPipelineState::new(mesh));
 
+            // Logo pipeline — routes TaskKind::Logo through the AiRouter to
+            // Ideogram v3, requesting up to 10 seed-salted variants in
+            // parallel and downloading each PNG into the platform cache
+            // dir. Frontend loads via Tauri `convertFileSrc`; when the
+            // download fails, it falls back to the remote URL.
+            let logo: Arc<dyn LogoPipeline> =
+                Arc::new(RouterLogoPipeline::new(Arc::clone(&ai_router_for_setup)));
+            app.manage(LogoPipelineState::new(logo));
+
             // Video pipeline — routes TextToVideo/ImageToVideo through the
             // AiRouter to Kling (Runway + Higgsfield as fallbacks, polling
             // wired in T4), then downloads the resulting MP4 into the
@@ -248,6 +260,7 @@ pub fn run() {
             mesh_pipeline::commands::generate_mesh_from_text,
             mesh_pipeline::commands::generate_mesh_from_image,
             mesh_pipeline::commands::export_mesh,
+            logo_pipeline::commands::generate_logo_variants,
             video_pipeline::commands::generate_video_from_text,
             video_pipeline::commands::generate_video_from_image,
             remotion::commands::render_remotion,
