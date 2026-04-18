@@ -7,6 +7,7 @@ pub mod image_pipeline;
 pub mod keychain;
 pub mod mesh_pipeline;
 pub mod projects;
+pub mod storyboard_generator;
 pub mod taste_engine;
 pub mod website_analyzer;
 
@@ -107,6 +108,17 @@ pub fn run() {
             let generator: Arc<dyn CodeGenerator> = Arc::new(StubCodeGenerator::new());
             app.manage(CodeGeneratorState::new(generator));
 
+            // Storyboard generator — routes through the shared AiRouter
+            // (Claude) and enriches prompts with the live taste profile.
+            // Returns strict JSON shot breakdowns for the video module.
+            let storyboard: Arc<dyn storyboard_generator::StoryboardGenerator> = Arc::new(
+                storyboard_generator::ClaudeStoryboardGenerator::new(Arc::clone(
+                    &ai_router_for_setup,
+                ))
+                .with_taste_engine(Arc::clone(&engine)),
+            );
+            app.manage(storyboard_generator::commands::StoryboardGeneratorState::new(storyboard));
+
             // Image pipeline — routed through the production AiRouter with
             // taste-engine enrichment. Missing provider keys bubble up as
             // routing errors rather than stub URLs.
@@ -161,6 +173,7 @@ pub fn run() {
             website_analyzer::commands::analyze_url,
             code_generator::commands::generate_website,
             code_generator::assist::modify_code_selection,
+            storyboard_generator::commands::generate_storyboard,
             exporter::commands::export_website,
             image_pipeline::commands::text_to_image,
             image_pipeline::commands::image_to_image,
