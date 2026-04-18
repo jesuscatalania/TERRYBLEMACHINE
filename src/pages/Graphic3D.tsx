@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { CameraControls, type CameraMode } from "@/components/graphic3d/CameraControls";
 import { DepthPlane } from "@/components/graphic3d/DepthPlane";
+import { GltfModel } from "@/components/graphic3d/GltfModel";
 import type { LightingName } from "@/components/graphic3d/LightingPreset";
 import { ThreeCanvas } from "@/components/graphic3d/ThreeCanvas";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { type DepthResult, generateDepth } from "@/lib/depthCommands";
+import { generateMeshFromText, type MeshResult } from "@/lib/meshCommands";
 import { useUiStore } from "@/stores/uiStore";
 
 export function Graphic3DPage() {
@@ -17,6 +19,9 @@ export function Graphic3DPage() {
   const [depthResult, setDepthResult] = useState<DepthResult | null>(null);
   const [depthBusy, setDepthBusy] = useState(false);
   const [displacementScale, setDisplacementScale] = useState(0.5);
+  const [meshPrompt, setMeshPrompt] = useState("");
+  const [meshResult, setMeshResult] = useState<MeshResult | null>(null);
+  const [meshBusy, setMeshBusy] = useState(false);
   const notify = useUiStore((s) => s.notify);
 
   async function generateDepthForImage() {
@@ -35,6 +40,25 @@ export function Graphic3DPage() {
       });
     } finally {
       setDepthBusy(false);
+    }
+  }
+
+  async function generate3D() {
+    const trimmed = meshPrompt.trim();
+    if (!trimmed) return;
+    setMeshBusy(true);
+    try {
+      const result = await generateMeshFromText({ prompt: trimmed, module: "graphic3d" });
+      setMeshResult(result);
+      notify({ kind: "success", message: "3D mesh ready", detail: result.model });
+    } catch (err) {
+      notify({
+        kind: "error",
+        message: "3D generation failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setMeshBusy(false);
     }
   }
 
@@ -70,6 +94,29 @@ export function Graphic3DPage() {
         {depthBusy ? (
           <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
             Requesting depth map…
+          </span>
+        ) : null}
+        <div className="flex items-end gap-2">
+          <div className="flex-1">
+            <Input
+              label="Describe a 3D object (Meshy)"
+              id="graphic3d-mesh-prompt"
+              placeholder="a minimalist wooden desk"
+              value={meshPrompt}
+              onValueChange={setMeshPrompt}
+            />
+          </div>
+          <Button
+            variant="secondary"
+            onClick={generate3D}
+            disabled={!meshPrompt.trim() || meshBusy}
+          >
+            {meshBusy ? "Generating…" : "Generate 3D"}
+          </Button>
+        </div>
+        {meshBusy ? (
+          <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
+            Requesting 3D mesh…
           </span>
         ) : null}
       </div>
@@ -118,7 +165,11 @@ export function Graphic3DPage() {
           </div>
         </div>
         <ThreeCanvas cameraMode={cameraMode} lighting={lighting} bloom={bloom} ssao={ssao}>
-          {depthResult ? (
+          {meshResult ? (
+            <Suspense fallback={null}>
+              <GltfModel localPath={meshResult.local_path} remoteUrl={meshResult.glb_url} />
+            </Suspense>
+          ) : depthResult ? (
             <DepthPlane
               imageUrl={imageUrl}
               depthUrl={depthResult.depth_url}
@@ -138,7 +189,20 @@ export function Graphic3DPage() {
             </span>
           </div>
           <div className="flex-1 overflow-y-auto">
-            {depthResult ? (
+            {meshResult ? (
+              <div className="flex flex-col gap-2 p-3">
+                <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
+                  Mesh
+                </span>
+                <span className="font-mono text-2xs text-neutral-dark-500">{meshResult.model}</span>
+                <span
+                  className="truncate font-mono text-2xs text-neutral-dark-600"
+                  title={meshResult.local_path ?? meshResult.glb_url}
+                >
+                  {meshResult.local_path ? "cached locally" : "remote URL"}
+                </span>
+              </div>
+            ) : depthResult ? (
               <div className="flex flex-col gap-2 p-3">
                 <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
                   Depth

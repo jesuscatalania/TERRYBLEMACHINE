@@ -5,6 +5,7 @@ pub mod depth_pipeline;
 pub mod exporter;
 pub mod image_pipeline;
 pub mod keychain;
+pub mod mesh_pipeline;
 pub mod projects;
 pub mod taste_engine;
 pub mod website_analyzer;
@@ -22,6 +23,8 @@ use depth_pipeline::{DepthPipeline, RouterDepthPipeline};
 use image_pipeline::commands::ImagePipelineState;
 use image_pipeline::{ImagePipeline, RouterImagePipeline};
 use keychain::commands::KeyStoreState;
+use mesh_pipeline::commands::MeshPipelineState;
+use mesh_pipeline::{MeshPipeline, RouterMeshPipeline};
 use projects::commands::{resolve_default_root, ProjectStoreState};
 use taste_engine::commands::TasteEngineState;
 use taste_engine::{ClaudeVisionAnalyzer, TasteEngine};
@@ -120,6 +123,14 @@ pub fn run() {
             let depth: Arc<dyn DepthPipeline> =
                 Arc::new(RouterDepthPipeline::new(Arc::clone(&ai_router_for_setup)));
             app.manage(DepthPipelineState::new(depth));
+
+            // Mesh pipeline — routes Text3D/Image3D through the AiRouter to
+            // Meshy, then downloads the resulting GLB into the platform
+            // cache dir. Frontend loads via Tauri `convertFileSrc`; when
+            // the download fails, it falls back to the remote URL.
+            let mesh: Arc<dyn MeshPipeline> =
+                Arc::new(RouterMeshPipeline::new(Arc::clone(&ai_router_for_setup)));
+            app.manage(MeshPipelineState::new(mesh));
             Ok(())
         })
         .manage(KeyStoreState::new(keystore))
@@ -157,6 +168,8 @@ pub fn run() {
             image_pipeline::commands::generate_variants,
             image_pipeline::commands::inpaint_image,
             depth_pipeline::commands::generate_depth,
+            mesh_pipeline::commands::generate_mesh_from_text,
+            mesh_pipeline::commands::generate_mesh_from_image,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
