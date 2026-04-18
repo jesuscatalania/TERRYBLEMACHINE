@@ -37,7 +37,6 @@ describe("App", () => {
   });
 
   it.each([
-    ["/graphic3d", "Pseudo-3D", "graphic3d"],
     ["/video", "Video", "video"],
     ["/typography", "Type & Logo", "typography"],
   ] as const)("renders %s placeholder and syncs store", (path, label, id) => {
