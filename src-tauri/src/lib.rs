@@ -197,8 +197,7 @@ pub fn run() {
             // Brand kit — pure-Rust raster resize + color variants via the
             // `image` crate. No router, no network: takes the vectorizer's
             // SVG + a raster render of the logo and produces the full
-            // favicon/web/print bundle plus a placeholder style guide (T6
-            // fills in the real generator).
+            // favicon/web/print bundle plus the generated style guide HTML.
             let brand_kit: Arc<dyn BrandKitBuilder> = Arc::new(StandardBrandKit::new());
             app.manage(BrandKitState::new(brand_kit));
 
@@ -282,7 +281,6 @@ pub fn run() {
             mesh_pipeline::commands::export_mesh,
             logo_pipeline::commands::generate_logo_variants,
             vectorizer::commands::vectorize_image,
-            brand_kit::commands::build_brand_kit,
             brand_kit::commands::export_brand_kit,
             video_pipeline::commands::generate_video_from_text,
             video_pipeline::commands::generate_video_from_image,

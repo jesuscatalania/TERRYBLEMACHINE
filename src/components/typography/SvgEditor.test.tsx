@@ -64,7 +64,6 @@ describe("SvgEditor text methods", () => {
     color: "#F7F7F8",
     size: 72,
     kerning: 0,
-    tracking: 0,
   };
 
   // Reset the injectGoogleFont call count between tests so the font-memo

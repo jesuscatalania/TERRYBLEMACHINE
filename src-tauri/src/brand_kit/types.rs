@@ -11,7 +11,7 @@
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use thiserror::Error;
 
 /// User-supplied brand-kit inputs.
@@ -33,19 +33,20 @@ pub struct BrandKitInput {
     pub font: String,
 }
 
-/// A single generated asset. `filename` is the name the consumer (T7 ZIP)
-/// should use; `bytes` is the raw file content.
-#[derive(Debug, Clone, Serialize)]
+/// A single generated asset. `filename` is the name the consumer (ZIP export)
+/// should use; `bytes` is the raw file content. No `Serialize` — this type
+/// never crosses the IPC boundary; it's assembled server-side and consumed
+/// by `export_brand_kit`'s ZIP writer.
+#[derive(Debug, Clone)]
 pub struct BrandKitAsset {
     pub filename: String,
     pub bytes: Vec<u8>,
 }
 
-/// Full brand-kit bundle: all assets plus an HTML style-guide string that
-/// T6 will fill in. Keeping `style_guide_html` as a string (not an asset)
-/// makes it trivial for the frontend preview to render it inline before
-/// the bundle gets zipped.
-#[derive(Debug, Clone, Serialize)]
+/// Full brand-kit bundle: all assets plus an HTML style-guide string.
+/// No `Serialize` — like [`BrandKitAsset`], this struct stays internal to
+/// the backend pipeline; the IPC layer returns only the ZIP path.
+#[derive(Debug, Clone)]
 pub struct BrandKitResult {
     pub assets: Vec<BrandKitAsset>,
     pub style_guide_html: String,
@@ -91,6 +92,13 @@ impl From<zip::result::ZipError> for BrandKitError {
 /// Tauri webview: here we reject any color that isn't a well-formed hex
 /// literal, and there we escape every other string that reaches the HTML.
 pub fn validate_input(input: &mut BrandKitInput) -> Result<(), BrandKitError> {
+    // Reject whitespace-only brand names up front — downstream the slug
+    // helper silently falls back to `"brand"`, which surprises the user.
+    if input.brand_name.trim().is_empty() {
+        return Err(BrandKitError::InvalidInput(
+            "brand_name must be non-empty".into(),
+        ));
+    }
     validate_hex_color(&input.primary_color, "primary_color")?;
     validate_hex_color(&input.accent_color, "accent_color")?;
     // Normalize to lowercase so downstream rendering (style_guide.html,

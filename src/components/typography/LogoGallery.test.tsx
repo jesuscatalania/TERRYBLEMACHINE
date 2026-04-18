@@ -38,4 +38,27 @@ describe("LogoGallery", () => {
     fireEvent.click(screen.getAllByLabelText(/^favorite$/i)[0] as HTMLElement);
     expect(useLogoStore.getState().isFavorite("https://example.com/a.png")).toBe(true);
   });
+
+  it('"Show favorites only" filter hides non-favorites and restores them on toggle off', () => {
+    render(<LogoGallery variants={sample()} selectedUrl={null} onSelect={() => {}} />);
+    // Favorite only the first variant.
+    fireEvent.click(screen.getAllByLabelText(/^favorite$/i)[0] as HTMLElement);
+    expect(useLogoStore.getState().isFavorite("https://example.com/a.png")).toBe(true);
+
+    // Enable the filter — only the favorited variant should remain.
+    fireEvent.click(screen.getByRole("button", { name: /show favorites only/i }));
+    expect(screen.getByTestId("logo-variant-https://example.com/a.png")).toBeInTheDocument();
+    expect(screen.queryByTestId("logo-variant-https://example.com/b.png")).toBeNull();
+
+    // Toggle back off — both variants render again.
+    fireEvent.click(screen.getByRole("button", { name: /show all/i }));
+    expect(screen.getByTestId("logo-variant-https://example.com/a.png")).toBeInTheDocument();
+    expect(screen.getByTestId("logo-variant-https://example.com/b.png")).toBeInTheDocument();
+  });
+
+  it("favorites-only with no favorites shows the empty-state hint", () => {
+    render(<LogoGallery variants={sample()} selectedUrl={null} onSelect={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /show favorites only/i }));
+    expect(screen.getByText(/no favorites yet/i)).toBeInTheDocument();
+  });
 });

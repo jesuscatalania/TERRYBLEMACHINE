@@ -16,7 +16,6 @@ const DEFAULT_TEXT_STYLE: TextStyle = {
   color: "#F7F7F8",
   size: 72,
   kerning: 0,
-  tracking: 0,
 };
 
 export function TypographyPage() {
@@ -167,6 +166,10 @@ export function TypographyPage() {
                 <Button variant="primary" onClick={handleVectorize} disabled={!canVectorize}>
                   {vectorizing ? "Vectorizing…" : "Vectorize"}
                 </Button>
+                {/* No visible <label>: the "Logo text" placeholder is self-
+                    descriptive and the 18rem panel is tight on vertical
+                    space. The aria-label keeps the input accessible to
+                    screen readers. */}
                 <input
                   aria-label="Logo text"
                   value={logoText}
@@ -203,7 +206,7 @@ export function TypographyPage() {
                 <Button
                   variant="ghost"
                   onClick={() => setExportOpen(true)}
-                  disabled={!vectorized || !selectedVariant.local_path}
+                  disabled={!vectorized || !selectedVariant.local_path || vectorizing}
                 >
                   Export brand kit
                 </Button>

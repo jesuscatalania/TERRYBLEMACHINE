@@ -6,7 +6,7 @@ use serde::Serialize;
 use tauri::State;
 use thiserror::Error;
 
-use super::types::{BrandKitBuilder, BrandKitError, BrandKitInput, BrandKitResult};
+use super::types::{BrandKitBuilder, BrandKitError, BrandKitInput};
 
 pub struct BrandKitState(pub Arc<dyn BrandKitBuilder>);
 
@@ -36,14 +36,6 @@ impl From<BrandKitError> for BrandKitIpcError {
             BrandKitError::Io(m) => Self::Io(m),
         }
     }
-}
-
-#[tauri::command]
-pub async fn build_brand_kit(
-    input: BrandKitInput,
-    state: State<'_, BrandKitState>,
-) -> Result<BrandKitResult, BrandKitIpcError> {
-    state.0.build(input).await.map_err(Into::into)
 }
 
 #[tauri::command]

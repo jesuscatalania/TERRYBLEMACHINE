@@ -23,14 +23,6 @@ function charSpacingFromPx(px: number, fontSize: number): number {
  * without re-renders. Intentionally lighter than `FabricCanvas` — the
  * typography module only needs load/serialize for now; full text-to-SVG
  * editing is deferred polish.
- *
- * Note on `TextStyle.tracking`: the `tracking` (word-spacing, px) field is
- * intentionally NOT applied to the Fabric Textbox. Fabric v6 does not expose
- * a word-spacing prop, and the usual workaround — string-mangling the input
- * via `text.split(" ").join(" ".repeat(n))` — mutates the user's content
- * and breaks copy/paste. The prop remains on the `TextStyle` shape as a
- * reservation for future work (e.g. rendering into per-word sub-Textboxes
- * or switching to a DOM-based editor).
  */
 export interface SvgEditorHandle {
   canvas: () => fabric.Canvas | null;
@@ -164,8 +156,6 @@ export const SvgEditor = forwardRef<SvgEditorHandle, SvgEditorProps>(function Sv
           // Fabric's Textbox uses `charSpacing` (1/1000 em units) for
           // kerning. Our kerning prop is in px; convert via the helper.
           charSpacing: charSpacingFromPx(style.kerning, style.size),
-          // `style.tracking` (word-spacing) is intentionally not applied —
-          // see the SvgEditorHandle TSDoc for why.
         });
         c.add(tb);
         // Use viewportCenterObject so the Textbox lands at the canvas's
@@ -189,8 +179,10 @@ export const SvgEditor = forwardRef<SvgEditorHandle, SvgEditorProps>(function Sv
         if (!target) return false;
         // If the fallback textbox was removed from the canvas (e.g. via
         // `c.clear()` in loadSvg), skip silently — patching a detached
-        // object would mislead the caller.
-        if (!c.getObjects().includes(target)) {
+        // object would mislead the caller. Fabric sets the `canvas` prop
+        // on each object during `add`/`remove`, so this is O(1) — no need
+        // to linearly scan `getObjects()`.
+        if (target.canvas !== c) {
           lastTextRef.current = null;
           return false;
         }

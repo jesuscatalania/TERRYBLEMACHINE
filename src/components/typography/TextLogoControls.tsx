@@ -3,10 +3,8 @@ import { GOOGLE_FONTS, type GoogleFont, injectGoogleFont } from "@/lib/googleFon
 /**
  * Shape of the text style patch the typography page owns.
  *
- * `kerning` is per-letter spacing in px, `tracking` is per-word spacing in
- * px. Both are numeric ranges here — applying them to a Fabric `Textbox`
- * (letterSpacing / wordSpacing) is deferred polish; the page currently
- * just stores the state so future text-to-SVG work can consume it.
+ * `kerning` is per-letter spacing in px, applied to Fabric's Textbox via
+ * `charSpacing` (1/1000 em).
  *
  * `font` is narrowed to `GoogleFont` (FU #175) so only families that are
  * actually in the curated Google Fonts list can flow into
@@ -18,7 +16,6 @@ export interface TextStyle {
   color: string;
   size: number;
   kerning: number;
-  tracking: number;
 }
 
 export interface TextLogoControlsProps {
@@ -83,19 +80,6 @@ export function TextLogoControls({ value, onChange }: TextLogoControlsProps) {
           step={0.5}
           value={value.kerning}
           onChange={(e) => onChange({ ...value, kerning: Number(e.target.value) })}
-          className="accent-accent-500"
-        />
-      </label>
-      <label className="flex flex-col gap-1 text-2xs text-neutral-dark-300">
-        Tracking: {value.tracking.toFixed(1)}
-        <input
-          aria-label="Tracking"
-          type="range"
-          min={0}
-          max={50}
-          step={0.5}
-          value={value.tracking}
-          onChange={(e) => onChange({ ...value, tracking: Number(e.target.value) })}
           className="accent-accent-500"
         />
       </label>

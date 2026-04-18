@@ -204,6 +204,27 @@ async fn brand_kit_includes_style_guide_html() {
 }
 
 #[tokio::test]
+async fn brand_kit_rejects_empty_brand_name() {
+    let tmp = TempDir::new().unwrap();
+    let src = tmp.path().join("src.png");
+    std::fs::write(&src, tiny_png()).unwrap();
+
+    let kit = StandardBrandKit::new();
+    let err = kit
+        .build(BrandKitInput {
+            logo_svg: "<svg/>".into(),
+            source_png_path: src,
+            brand_name: "   ".into(),
+            primary_color: "#000".into(),
+            accent_color: "#fff".into(),
+            font: "Inter".into(),
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(err, BrandKitError::InvalidInput(_)));
+}
+
+#[tokio::test]
 async fn brand_kit_rejects_invalid_hex_color() {
     let tmp = TempDir::new().unwrap();
     let src = tmp.path().join("src.png");

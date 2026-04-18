@@ -8,7 +8,6 @@ const BASE: TextStyle = {
   color: "#F7F7F8",
   size: 72,
   kerning: 0,
-  tracking: 0,
 };
 
 describe("TextLogoControls", () => {
@@ -18,7 +17,6 @@ describe("TextLogoControls", () => {
     expect((screen.getByLabelText(/color/i) as HTMLInputElement).value).toBe("#f7f7f8");
     expect((screen.getByLabelText(/size/i) as HTMLInputElement).value).toBe("72");
     expect((screen.getByLabelText(/kerning/i) as HTMLInputElement).value).toBe("0");
-    expect((screen.getByLabelText(/tracking/i) as HTMLInputElement).value).toBe("0");
   });
 
   it("fires onChange with font patch (after font load resolves)", async () => {
@@ -54,14 +52,5 @@ describe("TextLogoControls", () => {
       target: { value: "5.5" },
     });
     expect(onChange).toHaveBeenCalledWith({ ...BASE, kerning: 5.5 });
-  });
-
-  it("fires onChange with tracking patch", () => {
-    const onChange = vi.fn();
-    render(<TextLogoControls value={BASE} onChange={onChange} />);
-    fireEvent.change(screen.getByLabelText(/tracking/i), {
-      target: { value: "12" },
-    });
-    expect(onChange).toHaveBeenCalledWith({ ...BASE, tracking: 12 });
   });
 });
