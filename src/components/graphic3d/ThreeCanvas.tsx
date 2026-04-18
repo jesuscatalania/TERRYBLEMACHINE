@@ -3,12 +3,15 @@ import { Canvas } from "@react-three/fiber";
 import type { ReactNode } from "react";
 import type { CameraMode } from "./CameraControls";
 import { type LightingName, LightingPreset } from "./LightingPreset";
+import { PostProcessing } from "./PostProcessing";
 
 export interface ThreeCanvasProps {
   children?: ReactNode;
   className?: string;
   cameraMode?: CameraMode;
   lighting?: LightingName;
+  bloom?: boolean;
+  ssao?: boolean;
 }
 
 export function ThreeCanvas({
@@ -16,6 +19,8 @@ export function ThreeCanvas({
   className,
   cameraMode = "perspective",
   lighting = "studio",
+  bloom,
+  ssao,
 }: ThreeCanvasProps) {
   const canvasProps =
     cameraMode === "orthographic"
@@ -41,6 +46,7 @@ export function ThreeCanvas({
         <LightingPreset name={lighting} />
         <OrbitControls makeDefault />
         {children}
+        <PostProcessing bloom={bloom} ssao={ssao} />
       </Canvas>
     </div>
   );

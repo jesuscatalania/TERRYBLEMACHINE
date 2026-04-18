@@ -6,6 +6,8 @@ import { ThreeCanvas } from "@/components/graphic3d/ThreeCanvas";
 export function Graphic3DPage() {
   const [cameraMode, setCameraMode] = useState<CameraMode>("perspective");
   const [lighting, setLighting] = useState<LightingName>("studio");
+  const [bloom, setBloom] = useState(false);
+  const [ssao, setSsao] = useState(false);
 
   return (
     <div className="grid h-full grid-rows-[auto_1fr]">
@@ -36,8 +38,31 @@ export function Graphic3DPage() {
               <option value="dramatic">Dramatic</option>
             </select>
           </div>
+          <div className="mt-2 flex flex-col gap-1">
+            <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
+              Post-FX
+            </span>
+            <label className="flex items-center gap-2 text-neutral-dark-200 text-xs">
+              <input
+                type="checkbox"
+                checked={bloom}
+                onChange={(e) => setBloom(e.target.checked)}
+                className="accent-accent-500"
+              />
+              Bloom
+            </label>
+            <label className="flex items-center gap-2 text-neutral-dark-200 text-xs">
+              <input
+                type="checkbox"
+                checked={ssao}
+                onChange={(e) => setSsao(e.target.checked)}
+                className="accent-accent-500"
+              />
+              SSAO
+            </label>
+          </div>
         </div>
-        <ThreeCanvas cameraMode={cameraMode} lighting={lighting}>
+        <ThreeCanvas cameraMode={cameraMode} lighting={lighting} bloom={bloom} ssao={ssao}>
           <mesh>
             <boxGeometry args={[1, 1, 1]} />
             <meshStandardMaterial color="#e85d2d" />
