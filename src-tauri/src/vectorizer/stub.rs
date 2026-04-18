@@ -6,7 +6,7 @@
 
 use async_trait::async_trait;
 
-use super::types::{VectorizeError, VectorizeInput, VectorizeResult, Vectorizer};
+use super::types::{validate_input, VectorizeError, VectorizeInput, VectorizeResult, Vectorizer};
 
 pub struct StubVectorizer;
 
@@ -25,6 +25,7 @@ impl Default for StubVectorizer {
 #[async_trait]
 impl Vectorizer for StubVectorizer {
     async fn vectorize(&self, input: VectorizeInput) -> Result<VectorizeResult, VectorizeError> {
+        validate_input(&input)?;
         if !input.image_path.exists() {
             return Err(VectorizeError::InvalidInput("missing image".into()));
         }

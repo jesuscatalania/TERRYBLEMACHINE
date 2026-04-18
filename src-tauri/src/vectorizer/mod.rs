@@ -13,4 +13,4 @@ pub mod types;
 
 pub use pipeline::VtracerPipeline;
 pub use stub::StubVectorizer;
-pub use types::{VectorizeError, VectorizeInput, VectorizeResult, Vectorizer};
+pub use types::{ColorMode, VectorizeError, VectorizeInput, VectorizeResult, Vectorizer};

@@ -8,7 +8,9 @@
 
 use tempfile::TempDir;
 
-use terryblemachine_lib::vectorizer::{StubVectorizer, VectorizeError, VectorizeInput, Vectorizer};
+use terryblemachine_lib::vectorizer::{
+    ColorMode, StubVectorizer, VectorizeError, VectorizeInput, Vectorizer,
+};
 
 #[tokio::test]
 async fn stub_vectorizer_returns_svg_for_existing_file() {
@@ -20,7 +22,7 @@ async fn stub_vectorizer_returns_svg_for_existing_file() {
     let result = v
         .vectorize(VectorizeInput {
             image_path: img,
-            color_mode: "color".into(),
+            color_mode: ColorMode::Color,
             filter_speckle: 4,
             corner_threshold: 60,
         })
@@ -39,13 +41,57 @@ async fn stub_vectorizer_rejects_missing_file() {
     let err = v
         .vectorize(VectorizeInput {
             image_path: missing,
-            color_mode: "color".into(),
+            color_mode: ColorMode::Color,
             filter_speckle: 4,
             corner_threshold: 60,
         })
         .await
         .unwrap_err();
     assert!(matches!(err, VectorizeError::InvalidInput(_)));
+}
+
+#[tokio::test]
+async fn stub_vectorizer_rejects_corner_threshold_out_of_range() {
+    let tmp = TempDir::new().unwrap();
+    let img = tmp.path().join("x.png");
+    std::fs::write(&img, b"fake-png").unwrap();
+
+    let v = StubVectorizer::new();
+    let err = v
+        .vectorize(VectorizeInput {
+            image_path: img,
+            color_mode: ColorMode::Color,
+            filter_speckle: 4,
+            corner_threshold: 200,
+        })
+        .await
+        .unwrap_err();
+    match err {
+        VectorizeError::InvalidInput(msg) => assert!(msg.contains("corner_threshold")),
+        other => panic!("expected InvalidInput, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn stub_vectorizer_rejects_filter_speckle_out_of_range() {
+    let tmp = TempDir::new().unwrap();
+    let img = tmp.path().join("x.png");
+    std::fs::write(&img, b"fake-png").unwrap();
+
+    let v = StubVectorizer::new();
+    let err = v
+        .vectorize(VectorizeInput {
+            image_path: img,
+            color_mode: ColorMode::Bw,
+            filter_speckle: 200,
+            corner_threshold: 60,
+        })
+        .await
+        .unwrap_err();
+    match err {
+        VectorizeError::InvalidInput(msg) => assert!(msg.contains("filter_speckle")),
+        other => panic!("expected InvalidInput, got {other:?}"),
+    }
 }
 
 /// Real vtracer round-trip. `#[ignore]` because it pulls the full
@@ -64,7 +110,7 @@ async fn vtracer_pipeline_converts_real_png() {
     let result = v
         .vectorize(VectorizeInput {
             image_path: png,
-            color_mode: "color".into(),
+            color_mode: ColorMode::Color,
             filter_speckle: 4,
             corner_threshold: 60,
         })

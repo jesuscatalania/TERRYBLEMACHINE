@@ -18,7 +18,9 @@ use std::fs;
 use async_trait::async_trait;
 use tempfile::NamedTempFile;
 
-use super::types::{VectorizeError, VectorizeInput, VectorizeResult, Vectorizer};
+use super::types::{
+    validate_input, ColorMode, VectorizeError, VectorizeInput, VectorizeResult, Vectorizer,
+};
 
 pub struct VtracerPipeline;
 
@@ -37,6 +39,8 @@ impl Default for VtracerPipeline {
 #[async_trait]
 impl Vectorizer for VtracerPipeline {
     async fn vectorize(&self, input: VectorizeInput) -> Result<VectorizeResult, VectorizeError> {
+        validate_input(&input)?;
+
         if !input.image_path.exists() {
             return Err(VectorizeError::InvalidInput(format!(
                 "image not found: {}",
@@ -45,7 +49,7 @@ impl Vectorizer for VtracerPipeline {
         }
 
         let input_path = input.image_path.clone();
-        let color_mode = input.color_mode.clone();
+        let color_mode = input.color_mode;
         let filter_speckle = input.filter_speckle;
         let corner_threshold = input.corner_threshold;
 
@@ -57,10 +61,9 @@ impl Vectorizer for VtracerPipeline {
                 let out_path = tmp.path().to_owned();
 
                 let config = vtracer::Config {
-                    color_mode: if color_mode == "bw" {
-                        vtracer::ColorMode::Binary
-                    } else {
-                        vtracer::ColorMode::Color
+                    color_mode: match color_mode {
+                        ColorMode::Bw => vtracer::ColorMode::Binary,
+                        ColorMode::Color => vtracer::ColorMode::Color,
                     },
                     filter_speckle: filter_speckle as usize,
                     corner_threshold: corner_threshold as i32,
