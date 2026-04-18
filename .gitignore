@@ -48,3 +48,9 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# Remotion workspace artifacts
+remotion/node_modules
+remotion/out
+remotion/public
+
