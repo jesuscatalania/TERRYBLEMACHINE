@@ -1,7 +1,7 @@
 import { render } from "@testing-library/react";
 import type * as fabric from "fabric";
 import { createRef } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SvgEditor, type SvgEditorHandle } from "@/components/typography/SvgEditor";
 import { injectGoogleFont } from "@/lib/googleFonts";
 
@@ -67,6 +67,13 @@ describe("SvgEditor text methods", () => {
     tracking: 0,
   };
 
+  // Reset the injectGoogleFont call count between tests so the font-memo
+  // test isn't the only gatekeeper for mock hygiene — any future test that
+  // asserts on call counts will start from a clean baseline.
+  beforeEach(() => {
+    vi.mocked(injectGoogleFont).mockClear();
+  });
+
   it("addText appends a Textbox with the given style and selects it", async () => {
     const ref = createRef<SvgEditorHandle>();
     render(<SvgEditor ref={ref} />);
@@ -123,8 +130,10 @@ describe("SvgEditor text methods", () => {
   });
 
   it("updateText skips redundant font injection when font hasn't changed", async () => {
+    // Relies on the describe-level beforeEach clearing the mock. Asserts
+    // the memoization contract: injectGoogleFont fires exactly once per
+    // distinct font family, not once per slider tick.
     const mock = vi.mocked(injectGoogleFont);
-    mock.mockClear();
     const ref = createRef<SvgEditorHandle>();
     render(<SvgEditor ref={ref} />);
     await ref.current?.addText("Acme", BASE_STYLE); // call 1 — injects Inter

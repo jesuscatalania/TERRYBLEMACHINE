@@ -27,11 +27,11 @@ export function TypographyPage() {
   const [variants, setVariants] = useState<LogoVariant[]>([]);
   const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
   const [textStyle, setTextStyle] = useState<TextStyle>(DEFAULT_TEXT_STYLE);
-  // `textContent` drives the "Add text" button. We intentionally keep it
+  // `logoText` drives the "Add text" button. We intentionally keep it
   // separate from `prompt` (the generation prompt) — a realistic prompt
   // like "a minimalist logo for Acme Corp" would otherwise ship as the
   // literal logo text (FU #176).
-  const [textContent, setTextContent] = useState("");
+  const [logoText, setLogoText] = useState("");
   const [vectorizing, setVectorizing] = useState(false);
   // `vectorized` gates the Export button on a fresh vectorize so we never
   // ship a kit whose SVG doesn't match the selected PNG. It's reset inline
@@ -169,8 +169,8 @@ export function TypographyPage() {
                 </Button>
                 <input
                   aria-label="Logo text"
-                  value={textContent}
-                  onChange={(e) => setTextContent(e.target.value)}
+                  value={logoText}
+                  onChange={(e) => setLogoText(e.target.value)}
                   placeholder="Logo text"
                   className="rounded-xs border border-neutral-dark-700 bg-neutral-dark-900 px-2 py-1 text-2xs text-neutral-dark-100"
                 />
@@ -180,14 +180,23 @@ export function TypographyPage() {
                     // Fire-and-forget — addText returns a Promise so the
                     // font can finish loading before the Textbox renders,
                     // but the click handler doesn't need to block on it.
-                    // `textContent` drives this, NOT `prompt` — a long
+                    // `logoText` drives this, NOT `prompt` — a long
                     // generation prompt would otherwise ship as logo text.
-                    const trimmed = textContent.trim();
+                    // Error surfaces via notify to match `handleVectorize`'s
+                    // error-channel pattern (not the dialog banner, which
+                    // is reserved for backend-rejection paths).
+                    const trimmed = logoText.trim();
                     if (trimmed) {
-                      void editorRef.current?.addText(trimmed, textStyle);
+                      editorRef.current?.addText(trimmed, textStyle).catch((err) => {
+                        notify({
+                          kind: "error",
+                          message: "Add text failed",
+                          detail: err instanceof Error ? err.message : String(err),
+                        });
+                      });
                     }
                   }}
-                  disabled={!textContent.trim()}
+                  disabled={!logoText.trim()}
                 >
                   Add text
                 </Button>
