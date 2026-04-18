@@ -8,6 +8,7 @@ pub mod keychain;
 pub mod mesh_pipeline;
 pub mod projects;
 pub mod remotion;
+pub mod shotstack_assembly;
 pub mod storyboard_generator;
 pub mod taste_engine;
 pub mod video_pipeline;
@@ -57,6 +58,10 @@ pub fn run() {
     ));
 
     let ai_router_for_setup = Arc::clone(&ai_router);
+    // Clone held for the `setup` closure: the `ShotstackAssembler` owns its
+    // own `ShotstackClient` (see below) rather than going through the
+    // AiRouter, so it needs its own handle on the keystore.
+    let keystore_for_setup = Arc::clone(&keystore);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -165,6 +170,21 @@ pub fn run() {
                 .unwrap_or_else(|_| std::path::PathBuf::from("."))
                 .join("remotion");
             app.manage(remotion::RemotionState::new(remotion_root));
+
+            // Shotstack timeline assembler — shares the keystore via its own
+            // `ShotstackClient` (not via the AiRouter, which would gain us
+            // nothing: Shotstack's timeline JSON has no cross-provider
+            // fallback). Downloads the finished MP4 to the platform cache so
+            // Remotion preview doesn't hit the CDN on every play.
+            let shotstack_client = Arc::new(api_clients::shotstack::ShotstackClient::new(
+                keystore_for_setup.clone(),
+            ));
+            let assembler: Arc<dyn shotstack_assembly::VideoAssembler> = Arc::new(
+                shotstack_assembly::ShotstackAssembler::new(shotstack_client),
+            );
+            app.manage(shotstack_assembly::commands::VideoAssemblerState::new(
+                assembler,
+            ));
             Ok(())
         })
         .manage(KeyStoreState::new(keystore))
@@ -209,6 +229,7 @@ pub fn run() {
             video_pipeline::commands::generate_video_from_text,
             video_pipeline::commands::generate_video_from_image,
             remotion::commands::render_remotion,
+            shotstack_assembly::commands::assemble_video,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
