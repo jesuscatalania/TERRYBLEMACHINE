@@ -132,8 +132,49 @@ After the phase shipped, all 17 follow-ups were worked through in four review-ga
 - #175 POST-PHASE-7 BACKLOG: Narrow TextStyle.font to GoogleFont type
 - #176 POST-PHASE-7 BACKLOG: Typography "Add text" default text picker
 
+## Wave 5 — post-phase backlog polish (`f9164f7` + polish `ceefd46`)
+
+All three POST-PHASE-7 BACKLOG items closed:
+
+| # | Resolution |
+|---|---|
+| #174 | SvgEditor memoizes last-injected font via `lastFontRef`; `injectGoogleFont` fires once per distinct family, not once per slider tick. Invalidates on canvas dispose + `loadSvg` clear. |
+| #175 | `TextStyle.font` narrowed `string → GoogleFont`; dropped both `style.font as GoogleFont` casts in SvgEditor. |
+| #176 | Typography "Add text" gets its own `logoText` input (replaces the `prompt.trim() || "Your brand"` footgun); button disabled until text is present. |
+
+Polish commit `ceefd46`: surface addText errors via `notify` (parity with `handleVectorize`), `beforeEach` mock hygiene for the font-memo test, rename `textContent` → `logoText` to avoid the DOM-property collision.
+
+## Holistic end-of-phase debug review (`02f0586` + `57da667`)
+
+After all follow-ups shipped, a holistic code-review pass over the full Phase-7 surface found 1 Critical + 5 Important + 2 Minor + 1 race — all closed in `02f0586`, with `57da667` resolving the final `favOnly`-persistence issue surfaced by the closure's own code-quality review:
+
+| Severity | Finding | Resolution |
+|---|---|---|
+| Critical | `build_brand_kit` Tauri command registered but unreachable (no frontend consumer, `export_brand_kit` calls the trait directly) | Command deleted from `commands.rs` + `invoke_handler!`; `Serialize` derives dropped from `BrandKitResult`/`BrandKitAsset` (internal-only now). Trait method preserved. |
+| Important | Stale "(T6 fills in the real generator)" comment in `lib.rs` | Updated to present tense |
+| Important | `useLogoStore.favorites` had no downstream consumer — heart-icons were cosmetic | Added "Show favorites only" toggle + empty-state in LogoGallery (+2 tests). Filter resets per generate cycle (`57da667`). |
+| Important | `TextStyle.tracking` was a placebo slider (Fabric v6 has no word-spacing) | Field + slider removed entirely; shipping a no-op control was a UX lie |
+| Important | No integration test for the full generate→vectorize→export flow | New `Typography.integration.test.tsx` walks the happy path with mocked command wrappers |
+| Important | `brand_name` skipped by `validate_input` — whitespace-only passed | Added trim-empty check + integration test |
+| Race | Export button clickable while `vectorizing` — could race `toSvgString()` | Export `disabled={!vectorized \|\| !local_path \|\| vectorizing}` |
+| Minor | `updateText`'s `c.getObjects().includes(target)` was a linear scan | Replaced with O(1) `target.canvas !== c` |
+| Minor | `logoText` input had no visible `<label>` | Documented decision to keep placeholder-only (18rem panel is tight; aria-label + self-describing placeholder is sufficient) |
+
+### New post-Phase-7 backlog item
+
+- #177 Integration-test ABI coverage: the integration test mocks the command wrappers, so a Tauri command name / payload-shape drift would silently pass. Upgrade path: mock `@tauri-apps/api/core::invoke` directly and assert command name + payload. Non-blocking.
+
+## Final numbers (as of `57da667`)
+
+- Rust: `cargo test` passing (425+ tests), 4 pre-existing `#[ignore]`
+- Frontend: `pnpm vitest run` **342 passing across 68 test files**
+- `pnpm exec tsc --noEmit` clean
+- `pnpm biome check .` clean (181 files)
+- `cargo clippy --all-targets -- -D warnings` clean, `cargo fmt --check` clean
+- CI: run `24611075726` green (Lint 21s / Test 1m2s / Build 3m6s)
+
 ## Verdict
 
-Phase 7 requirements (per `docs/superpowers/plans/2026-04-17-phase-7-typography.md`) satisfied at feature level. All 17 in-phase follow-ups resolved (16 implemented, 1 consciously deferred with documented rationale). Three post-Phase-7 backlog items tracked (#174/#175/#176) — all genuine polish, none blocking Phase 8.
+Phase 7 requirements (per `docs/superpowers/plans/2026-04-17-phase-7-typography.md`) satisfied at feature level. All 17 in-phase follow-ups + all 3 post-phase backlog items resolved (19 implemented, 1 deferred with documented rationale for #160). Holistic end-of-phase debug review surfaced and closed 9 additional issues spanning dead code, placebo UI, race conditions, validation gaps, and performance. One follow-up (#177) tracked for future ABI-drift hardening of the integration test — non-blocking.
 
-**Phase 7 closed. Ready for Phase 8.**
+**Phase 7 closed with end-of-phase debug closure. Ready for Phase 8.**
