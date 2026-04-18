@@ -60,6 +60,59 @@ async fn brand_kit_produces_all_sizes_plus_variants() {
     assert!(filenames.contains(&"print-2048.png"));
     assert!(filenames.contains(&"logo-bw.png"));
     assert!(filenames.contains(&"logo-inverted.png"));
+
+    assert!(
+        !result.style_guide_html.is_empty(),
+        "style_guide_html should be non-empty (T5 placeholder or T6 real)"
+    );
+}
+
+#[tokio::test]
+async fn brand_kit_bw_and_inverted_preserve_alpha() {
+    use image::{ImageBuffer, ImageFormat, Rgba};
+
+    let tmp = TempDir::new().unwrap();
+    let src = tmp.path().join("src.png");
+
+    // 2x2 PNG where one pixel is fully transparent
+    let img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_fn(2, 2, |x, y| match (x, y) {
+        (0, 0) => Rgba([255, 0, 0, 255]), // opaque red
+        (1, 0) => Rgba([0, 255, 0, 128]), // semi-transparent green
+        (0, 1) => Rgba([0, 0, 255, 0]),   // fully transparent
+        _ => Rgba([255, 255, 255, 255]),
+    });
+    let mut buf = Vec::new();
+    image::DynamicImage::ImageRgba8(img)
+        .write_to(&mut std::io::Cursor::new(&mut buf), ImageFormat::Png)
+        .unwrap();
+    std::fs::write(&src, &buf).unwrap();
+
+    let kit = StandardBrandKit::new();
+    let result = kit
+        .build(BrandKitInput {
+            logo_svg: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"/>"
+                .into(),
+            source_png_path: src,
+            brand_name: "Acme".into(),
+            primary_color: "#000".into(),
+            accent_color: "#fff".into(),
+            font: "Inter".into(),
+        })
+        .await
+        .unwrap();
+
+    // Pull the bw + inverted PNGs back out, decode them, and assert that
+    // each variant's alpha channel still has at least one non-255 value
+    // (i.e. transparency survived the transform).
+    for fname in &["logo-bw.png", "logo-inverted.png"] {
+        let asset = result.assets.iter().find(|a| a.filename == *fname).unwrap();
+        let decoded = image::load_from_memory(&asset.bytes).unwrap().to_rgba8();
+        let has_transparency = decoded.pixels().any(|p| p.0[3] != 255);
+        assert!(
+            has_transparency,
+            "{fname} lost alpha channel — all pixels opaque after transform"
+        );
+    }
 }
 
 #[tokio::test]
