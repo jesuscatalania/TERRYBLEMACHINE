@@ -61,4 +61,40 @@ describe("BrandKitDialog", () => {
     await user.click(screen.getByRole("button", { name: /export/i }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/boom/);
   });
+
+  it("calls onClose and resets fields when Cancel is clicked", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const onSubmit = vi.fn();
+    const { rerender } = render(
+      <BrandKitDialog open={true} onClose={onClose} onSubmit={onSubmit} />,
+    );
+
+    // Type into the fields, then cancel — onClose must fire.
+    await user.type(screen.getByLabelText(/brand name/i), "Acme");
+    await user.type(screen.getByLabelText(/destination directory/i), "/tmp/out");
+    await user.click(screen.getByRole("button", { name: /cancel/i }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    // Re-open the dialog — prior form state must be reset (empty inputs).
+    rerender(<BrandKitDialog open={false} onClose={onClose} onSubmit={onSubmit} />);
+    rerender(<BrandKitDialog open={true} onClose={onClose} onSubmit={onSubmit} />);
+    expect(screen.getByLabelText(/brand name/i)).toHaveValue("");
+    expect(screen.getByLabelText(/destination directory/i)).toHaveValue("");
+  });
+
+  it("propagates defaultBrandName and defaultDestination to the inputs", () => {
+    render(
+      <BrandKitDialog
+        open={true}
+        onClose={() => {}}
+        onSubmit={vi.fn()}
+        defaultBrandName="Preset"
+        defaultDestination="/tmp/exports"
+      />,
+    );
+    expect(screen.getByLabelText(/brand name/i)).toHaveValue("Preset");
+    expect(screen.getByLabelText(/destination directory/i)).toHaveValue("/tmp/exports");
+  });
 });

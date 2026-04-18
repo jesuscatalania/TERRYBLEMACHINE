@@ -15,21 +15,30 @@ export interface SvgEditorHandle {
 }
 
 export interface SvgEditorProps {
+  /** Initial canvas width in px. Defaults to 600. */
+  width?: number;
+  /** Initial canvas height in px. Defaults to 400. */
+  height?: number;
   className?: string;
 }
 
 export const SvgEditor = forwardRef<SvgEditorHandle, SvgEditorProps>(function SvgEditorImpl(
-  { className },
+  { width = 600, height = 400, className },
   ref,
 ) {
   const canvasElRef = useRef<HTMLCanvasElement | null>(null);
   const canvasRef = useRef<fabric.Canvas | null>(null);
+  // Capture the initial prop values so the once-only canvas-init effect
+  // doesn't need them in its dep array — matches the pattern in
+  // `graphic2d/FabricCanvas.tsx` and avoids a biome-ignore comment.
+  const initialSizeRef = useRef({ width, height });
 
   useEffect(() => {
     if (!canvasElRef.current) return;
+    const { width: w, height: h } = initialSizeRef.current;
     const c = new fabric.Canvas(canvasElRef.current, {
-      width: 600,
-      height: 400,
+      width: w,
+      height: h,
       backgroundColor: "#F7F7F8",
       preserveObjectStacking: true,
     });
@@ -59,6 +68,12 @@ export const SvgEditor = forwardRef<SvgEditorHandle, SvgEditorProps>(function Sv
             left: 0,
             top: 0,
           });
+          // Defensive scale: if the vectorizer's reported width diverges
+          // from the SVG's intrinsic viewBox (e.g. a bounding-box heuristic
+          // vs. the real artwork box), `scaleToWidth` re-fits the group to
+          // the canvas so the user sees the artwork at the expected size.
+          // Fabric preserves aspect ratio implicitly.
+          group.scaleToWidth(width);
           c.add(group);
           c.setActiveObject(group);
         }

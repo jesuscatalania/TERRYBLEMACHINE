@@ -1,5 +1,5 @@
 import { Sparkles } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { BrandKitDialog, type BrandKitDialogInput } from "@/components/typography/BrandKitDialog";
 import { LogoGallery } from "@/components/typography/LogoGallery";
 import { SvgEditor, type SvgEditorHandle } from "@/components/typography/SvgEditor";
@@ -29,6 +29,12 @@ export function TypographyPage() {
   const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
   const [textStyle, setTextStyle] = useState<TextStyle>(DEFAULT_TEXT_STYLE);
   const [vectorizing, setVectorizing] = useState(false);
+  // `vectorized` gates the Export button on a fresh vectorize so we never
+  // ship a kit whose SVG doesn't match the selected PNG. It's reset inline
+  // in `LogoGallery.onSelect` below. Teardown scenarios (SvgEditor
+  // unmounts, HMR, test cleanup) can leave the flag stale against an empty
+  // canvas — the empty-SVG check in `handleExport` is the backstop that
+  // catches that edge case without needing an onDispose callback.
   const [vectorized, setVectorized] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const editorRef = useRef<SvgEditorHandle>(null);
@@ -39,16 +45,6 @@ export function TypographyPage() {
     ? (variants.find((v) => v.url === selectedUrl) ?? null)
     : null;
   const canVectorize = Boolean(selectedVariant?.local_path) && !vectorizing;
-
-  // Reset vectorized flag whenever the user picks a different variant — the
-  // Fabric canvas still holds the previous logo but it no longer matches
-  // the selected source PNG, so gating Export on a fresh vectorize avoids
-  // shipping a mismatched kit. Using useEffect over inlining into onSelect
-  // means we can't forget to reset from a new code path later.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-runs when selectedUrl changes to reset vectorized state
-  useEffect(() => {
-    setVectorized(false);
-  }, [selectedUrl]);
 
   async function handleGenerate() {
     if (!prompt.trim()) return;
@@ -181,7 +177,14 @@ export function TypographyPage() {
       </div>
 
       <div className="grid min-h-0 grid-cols-[1fr_18rem]">
-        <LogoGallery variants={variants} selectedUrl={selectedUrl} onSelect={setSelectedUrl} />
+        <LogoGallery
+          variants={variants}
+          selectedUrl={selectedUrl}
+          onSelect={(url) => {
+            setSelectedUrl(url);
+            setVectorized(false);
+          }}
+        />
         <div className="flex min-h-0 flex-col gap-3 border-neutral-dark-700 border-l p-3">
           <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
             Editor
