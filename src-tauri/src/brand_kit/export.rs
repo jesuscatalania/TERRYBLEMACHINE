@@ -35,7 +35,13 @@ pub fn write_zip(
 }
 
 /// Normalize a brand name into a lowercase ASCII-alphanumeric slug with single
-/// `-` separators. Empty/punctuation-only input falls back to `"brand"`.
+/// `-` separators. Intentionally ASCII-only (no Unicode transliteration) so the
+/// resulting filename is safe across Windows/macOS/Linux without pulling in a
+/// transliteration dependency. Non-ASCII characters collapse to `-`:
+/// `"Café Münchën"` becomes `"caf-m-nch-n"`. The brand name itself is preserved
+/// verbatim in the HTML style guide; only the ZIP filename uses the slug.
+///
+/// Empty or punctuation-only input falls back to `"brand"`.
 pub fn slug_for(name: &str) -> String {
     let mut out = String::new();
     let mut prev_hyphen = false;
@@ -77,5 +83,14 @@ mod tests {
     #[test]
     fn slug_preserves_digits() {
         assert_eq!(slug_for("Brand 123"), "brand-123");
+    }
+
+    #[test]
+    fn slug_collapses_non_ascii_without_transliteration() {
+        // Intentional behavior — not a bug. Document via test.
+        assert_eq!(slug_for("Café Münchën"), "caf-m-nch-n");
+        // Pure non-ASCII input collapses to hyphens, which then trim to an
+        // empty slug and trigger the "brand" fallback.
+        assert_eq!(slug_for("東京"), "brand");
     }
 }

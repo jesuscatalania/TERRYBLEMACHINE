@@ -62,5 +62,17 @@ pub async fn export_brand_kit(
         .build(input)
         .await
         .map_err(Into::<BrandKitIpcError>::into)?;
-    super::export::write_zip(&destination, &brand_slug, &result.assets).map_err(Into::into)
+
+    // `write_zip` does disk I/O + Deflate compression of ~11 PNGs (up to a
+    // few MB each at 2048×2048) — running it synchronously from an async
+    // command stalls the Tokio runtime. Mirror the `spawn_blocking` pattern
+    // used by `vectorizer::pipeline` and `brand_kit::pipeline` so other IPC
+    // calls stay responsive while the ZIP is built.
+    let assets = result.assets;
+    let path = tokio::task::spawn_blocking(move || {
+        super::export::write_zip(&destination, &brand_slug, &assets)
+    })
+    .await
+    .map_err(|e| BrandKitIpcError::Io(format!("join error: {e}")))??;
+    Ok(path)
 }
