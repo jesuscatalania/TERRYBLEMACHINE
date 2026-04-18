@@ -1,5 +1,5 @@
 import { Heart } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import type { LogoVariant } from "@/lib/logoCommands";
 import { useLogoStore } from "@/stores/logoStore";
@@ -17,6 +17,17 @@ export function LogoGallery({ variants, selectedUrl, onSelect }: LogoGalleryProp
   // care whether the user is filtering, so the state stays internal and
   // the component's prop surface is unchanged.
   const [favOnly, setFavOnly] = useState(false);
+
+  // Reset the filter on every new generation cycle so the user isn't
+  // silently staring at an empty grid after re-running Generate with
+  // "Show favorites only" still toggled from a prior batch. The
+  // `variants` array identity is the trigger — biome wants only values
+  // the effect body references, but here the dep IS the trigger, not a
+  // value we read. Same escape hatch used in FabricCanvas.tsx / Input.tsx.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: variants is the trigger, not a read
+  useEffect(() => {
+    setFavOnly(false);
+  }, [variants]);
 
   if (variants.length === 0) {
     return (
