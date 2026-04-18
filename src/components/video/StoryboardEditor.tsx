@@ -36,6 +36,7 @@ export function StoryboardEditor({ storyboard, onChange }: StoryboardEditorProps
   function addShot() {
     if (!storyboard) return;
     const next: Shot = {
+      id: crypto.randomUUID(),
       index: storyboard.shots.length + 1,
       description: "",
       style: "",
@@ -72,7 +73,7 @@ export function StoryboardEditor({ storyboard, onChange }: StoryboardEditorProps
       </div>
       {storyboard.shots.map((shot, i) => (
         <ShotCard
-          key={shot.index}
+          key={shot.id}
           shot={shot}
           onChange={(patch) => updateShot(i, patch)}
           onRemove={() => removeShot(i)}

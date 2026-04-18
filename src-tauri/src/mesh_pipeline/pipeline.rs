@@ -121,8 +121,17 @@ impl MeshPipeline for RouterMeshPipeline {
             .map_err(router_to_pipeline_err)?;
         let glb_url = Self::extract_glb_url(&resp).ok_or(MeshPipelineError::NoOutput)?;
         // Best-effort download: a failed fetch falls back to `None` so the
-        // frontend can still render from the remote URL.
-        let local_path = self.download_to_cache(&glb_url).await.ok();
+        // frontend can still render from the remote URL. Log the failure so
+        // silent flaky-network regressions surface (FU #146).
+        let local_path = match self.download_to_cache(&glb_url).await {
+            Ok(p) => Some(p),
+            Err(e) => {
+                eprintln!(
+                    "[mesh-pipeline] download failed for {glb_url}, falling back to remote URL: {e}"
+                );
+                None
+            }
+        };
         Ok(MeshResult {
             glb_url,
             local_path,
@@ -163,7 +172,15 @@ impl MeshPipeline for RouterMeshPipeline {
             .await
             .map_err(router_to_pipeline_err)?;
         let glb_url = Self::extract_glb_url(&resp).ok_or(MeshPipelineError::NoOutput)?;
-        let local_path = self.download_to_cache(&glb_url).await.ok();
+        let local_path = match self.download_to_cache(&glb_url).await {
+            Ok(p) => Some(p),
+            Err(e) => {
+                eprintln!(
+                    "[mesh-pipeline] download failed for {glb_url}, falling back to remote URL: {e}"
+                );
+                None
+            }
+        };
         Ok(MeshResult {
             glb_url,
             local_path,

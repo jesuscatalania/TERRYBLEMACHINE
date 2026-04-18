@@ -33,7 +33,7 @@ export function ShotCard({
       className={`rounded-xs border border-neutral-dark-700 bg-neutral-dark-900 p-3 ${
         isDragging ? "opacity-50" : ""
       }`}
-      data-testid={`shot-card-${shot.index}`}
+      data-testid={`shot-card-${shot.id}`}
     >
       <div className="flex items-start justify-between gap-2">
         <span className="font-mono text-2xs text-accent-500 uppercase tracking-label">

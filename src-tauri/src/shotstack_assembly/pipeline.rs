@@ -146,19 +146,37 @@ impl VideoAssembler for ShotstackAssembler {
             .assemble_timeline(timeline_body)
             .await
             .map_err(|e| AssemblyError::Provider(e.to_string()))?;
-        let final_body = self
-            .client
-            .poll_render(&render_id)
-            .await
-            .map_err(|e| AssemblyError::Provider(e.to_string()))?;
+        let final_body = self.client.poll_render(&render_id).await.map_err(|e| {
+            // FU #146: on timeout the render is still queued server-side and
+            // will be billed even though we gave up waiting. Shotstack has no
+            // public cancel endpoint at the time of writing, so the best we
+            // can do is log the render id so the user can chase it on the
+            // dashboard. Non-timeout errors get the same log line for
+            // parity — they're rare and worth the trail.
+            eprintln!(
+                "[shotstack-assembler] poll failed for render {render_id}: {e} \
+                 (render may still complete server-side and be billed)"
+            );
+            AssemblyError::Provider(e.to_string())
+        })?;
         let video_url = final_body
             .pointer("/response/url")
             .and_then(|v| v.as_str())
             .ok_or_else(|| AssemblyError::Provider("shotstack: no url in done response".into()))?
             .to_string();
         // Best-effort download: a failed fetch falls back to `None` so the
-        // frontend can still render from the remote URL.
-        let local_path = self.download_to_cache(&video_url).await.ok();
+        // frontend can still render from the remote URL. The failure is
+        // logged so network issues don't disappear into the void.
+        let local_path = match self.download_to_cache(&video_url).await {
+            Ok(p) => Some(p),
+            Err(e) => {
+                eprintln!(
+                    "[shotstack-assembler] download failed for {video_url}, \
+                     falling back to remote URL: {e}"
+                );
+                None
+            }
+        };
         Ok(AssemblyResult {
             render_id,
             video_url,

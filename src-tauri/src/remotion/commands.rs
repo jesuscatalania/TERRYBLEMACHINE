@@ -57,6 +57,12 @@ pub async fn render_inner(
             composition: input.composition.clone(),
         });
     }
+    // TODO(FU #145): Tauri GUI launches may not inherit a shell-enriched PATH
+    // (no ~/.nvm, no homebrew, no Volta) so bare `npx` can ENOENT at runtime.
+    // Mitigations: (a) bundle a pinned Node binary alongside the Remotion
+    // subpackage; (b) resolve `which npx` once at setup and store the
+    // absolute path in `RemotionState`. Either requires tauri.conf.json /
+    // bundle work that's out of scope for FU #145.
     let output = Command::new("npx")
         .current_dir(remotion_root)
         .arg("remotion")

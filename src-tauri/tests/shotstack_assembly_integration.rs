@@ -18,14 +18,22 @@ use tempfile::TempDir;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use terryblemachine_lib::api_clients::shotstack::{ShotstackClient, KEYCHAIN_SERVICE};
+use terryblemachine_lib::api_clients::shotstack::{
+    ShotstackClient, ShotstackEnv, KEYCHAIN_SERVICE,
+};
 
 /// Build a `ShotstackClient` pointed at the wiremock `base_url`. Integration
 /// tests can't reach `#[cfg(test)] for_test`, so we use the public
 /// `with_base_url` and accept the default-rate-limited bucket (5 rps, plenty
-/// for the in-process wiremock).
+/// for the in-process wiremock). Defaults to the Stage env — integration
+/// tests exercise the sandbox render path.
 fn test_client(store: Arc<dyn KeyStore>, base_url: String) -> Arc<ShotstackClient> {
-    Arc::new(ShotstackClient::with_base_url(store, base_url, 5))
+    Arc::new(ShotstackClient::with_base_url(
+        store,
+        base_url,
+        5,
+        ShotstackEnv::Stage,
+    ))
 }
 use terryblemachine_lib::keychain::{InMemoryStore, KeyStore};
 use terryblemachine_lib::shotstack_assembly::{

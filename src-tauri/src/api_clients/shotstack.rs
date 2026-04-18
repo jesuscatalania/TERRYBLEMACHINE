@@ -43,11 +43,32 @@ const DEFAULT_POLL_MAX_ATTEMPTS: u32 = 60;
 const DEFAULT_POLL_INITIAL_DELAY: Duration = Duration::from_secs(2);
 const DEFAULT_POLL_MAX_DELAY: Duration = Duration::from_secs(30);
 
-const RENDER_PATH: &str = "/edit/stage/render";
+/// Which Shotstack environment to hit. `Stage` is the sandbox — watermarked
+/// output + a limited asset catalog, but free of charge and the default when
+/// no prod key is provisioned. `Prod` switches to `/edit/v1/render`, billed
+/// against the subscriber plan. Callers opt in via [`ShotstackClient::new_with_env`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ShotstackEnv {
+    #[default]
+    Stage,
+    Prod,
+}
+
+impl ShotstackEnv {
+    /// Path prefix for the render endpoint. Used by both the submit POST
+    /// and the status-poll GET (GET appends `/{render_id}`).
+    pub fn render_path(self) -> &'static str {
+        match self {
+            Self::Stage => "/edit/stage/render",
+            Self::Prod => "/edit/v1/render",
+        }
+    }
+}
 
 pub struct ShotstackClient {
     http: Client,
     base_url: String,
+    env: ShotstackEnv,
     key_store: Arc<dyn KeyStore>,
     rate: RateLimiter,
     poll_max_attempts: u32,
@@ -57,13 +78,31 @@ pub struct ShotstackClient {
 
 impl ShotstackClient {
     pub fn new(key_store: Arc<dyn KeyStore>) -> Self {
-        Self::with_base_url(key_store, DEFAULT_BASE_URL.to_owned(), DEFAULT_RATE_PER_SEC)
+        Self::with_base_url(
+            key_store,
+            DEFAULT_BASE_URL.to_owned(),
+            DEFAULT_RATE_PER_SEC,
+            ShotstackEnv::default(),
+        )
+    }
+
+    /// Like [`Self::new`] but pins the environment explicitly. Use this when
+    /// a prod key is wired up so renders hit `/edit/v1/render` (billed,
+    /// un-watermarked) instead of the default stage sandbox.
+    pub fn new_with_env(key_store: Arc<dyn KeyStore>, env: ShotstackEnv) -> Self {
+        Self::with_base_url(
+            key_store,
+            DEFAULT_BASE_URL.to_owned(),
+            DEFAULT_RATE_PER_SEC,
+            env,
+        )
     }
 
     pub fn with_base_url(
         key_store: Arc<dyn KeyStore>,
         base_url: String,
         rate_per_sec: usize,
+        env: ShotstackEnv,
     ) -> Self {
         let http = Client::builder()
             .timeout(Duration::from_secs(60))
@@ -72,6 +111,7 @@ impl ShotstackClient {
         Self {
             http,
             base_url,
+            env,
             key_store,
             rate: RateLimiter::new(rate_per_sec),
             poll_max_attempts: DEFAULT_POLL_MAX_ATTEMPTS,
@@ -82,6 +122,15 @@ impl ShotstackClient {
 
     #[cfg(test)]
     pub fn for_test(key_store: Arc<dyn KeyStore>, base_url: String) -> Self {
+        Self::for_test_with_env(key_store, base_url, ShotstackEnv::Stage)
+    }
+
+    #[cfg(test)]
+    pub fn for_test_with_env(
+        key_store: Arc<dyn KeyStore>,
+        base_url: String,
+        env: ShotstackEnv,
+    ) -> Self {
         let http = Client::builder()
             .timeout(Duration::from_secs(5))
             .build()
@@ -89,6 +138,7 @@ impl ShotstackClient {
         Self {
             http,
             base_url,
+            env,
             key_store,
             rate: RateLimiter::unlimited(),
             // Tests should not sit spinning for minutes; shrink every knob.
@@ -112,16 +162,17 @@ impl ShotstackClient {
         c
     }
 
-    /// POST a pre-built Shotstack timeline body to `/edit/stage/render` and
-    /// return the render id. The caller is responsible for constructing a
-    /// well-formed `{ timeline, output }` value — the
+    /// POST a pre-built Shotstack timeline body to the configured render
+    /// endpoint (`/edit/stage/render` on Stage, `/edit/v1/render` on Prod)
+    /// and return the render id. The caller is responsible for constructing
+    /// a well-formed `{ timeline, output }` value — the
     /// [`shotstack_assembly`](crate::shotstack_assembly) pipeline does this
     /// from its own typed inputs.
     pub async fn assemble_timeline(&self, timeline_body: Value) -> Result<String, ProviderError> {
         self.rate.acquire().await;
         let key = get_api_key(&*self.key_store, KEYCHAIN_SERVICE)?;
 
-        let url = format!("{}{}", self.base_url, RENDER_PATH);
+        let url = format!("{}{}", self.base_url, self.env.render_path());
         let resp = self
             .http
             .post(&url)
@@ -152,14 +203,14 @@ impl ShotstackClient {
         Ok(id)
     }
 
-    /// Poll `GET /edit/stage/render/{render_id}` until Shotstack reports a
+    /// Poll `GET {render_path}/{render_id}` until Shotstack reports a
     /// terminal status (`done` or `failed`). Returns the full JSON body on
     /// `done` so the caller can extract `response.url`; maps `failed` to
     /// [`ProviderError::Permanent`] with the server-supplied error message,
     /// and exhausted attempts to [`ProviderError::Timeout`] (transient — the
     /// caller may surface a "still rendering" UI hint).
     pub async fn poll_render(&self, render_id: &str) -> Result<Value, ProviderError> {
-        let url = format!("{}{}/{}", self.base_url, RENDER_PATH, render_id);
+        let url = format!("{}{}/{}", self.base_url, self.env.render_path(), render_id);
         let key = get_api_key(&*self.key_store, KEYCHAIN_SERVICE)?;
         let mut delay = self.poll_initial_delay;
 
@@ -204,10 +255,17 @@ impl ShotstackClient {
         Err(ProviderError::Timeout)
     }
 
-    /// Build the stage-render payload. Shotstack wants `{ timeline, output }`.
+    /// Build the render payload. Shotstack wants `{ timeline, output }`.
     /// `payload` on the request can override/extend these — for the happy-path
     /// test we fall back to a minimal sane default so the test doesn't have to
     /// stuff a whole timeline into the request body.
+    ///
+    /// Note: we deliberately do NOT forward `request.prompt` into the payload.
+    /// The prompt is a user-facing description and the outgoing body should
+    /// only carry Shotstack-intended fields; leaking it would both pollute
+    /// render logs and risk exposing PII on the provider side. The canonical
+    /// path for rich assembly input is [`Self::assemble_timeline`], called by
+    /// the `shotstack_assembly` pipeline.
     fn build_body(request: &AiRequest) -> Value {
         let mut timeline = request
             .payload
@@ -223,15 +281,15 @@ impl ShotstackClient {
             .cloned()
             .unwrap_or_else(|| json!({ "format": "mp4", "resolution": "sd" }));
 
-        json!({
+        let mut body = json!({
             "timeline": timeline,
             "output": output,
-            // Shotstack ignores unknown fields; we stash the prompt for
-            // observability in case the timeline was derived from it.
-            "callback": request.payload.get("callback").cloned(),
             "disk": "local",
-            "_prompt": request.prompt,
-        })
+        });
+        if let Some(cb) = request.payload.get("callback") {
+            body["callback"] = cb.clone();
+        }
+        body
     }
 
     async fn send_request(
@@ -243,7 +301,7 @@ impl ShotstackClient {
         let key = get_api_key(&*self.key_store, KEYCHAIN_SERVICE)?;
 
         let body = Self::build_body(request);
-        let url = format!("{}/edit/stage/render", self.base_url);
+        let url = format!("{}{}", self.base_url, self.env.render_path());
 
         let resp = self
             .http
@@ -576,6 +634,89 @@ mod tests {
             matches!(err, ProviderError::Timeout),
             "expected Timeout, got {err:?}"
         );
+    }
+
+    #[test]
+    fn render_path_differs_per_env() {
+        // Guards against a future refactor silently conflating the two.
+        assert_eq!(ShotstackEnv::Stage.render_path(), "/edit/stage/render");
+        assert_eq!(ShotstackEnv::Prod.render_path(), "/edit/v1/render");
+        assert_ne!(
+            ShotstackEnv::Stage.render_path(),
+            ShotstackEnv::Prod.render_path()
+        );
+    }
+
+    #[tokio::test]
+    async fn prod_env_posts_to_v1_render_path() {
+        let server = MockServer::start().await;
+        // Only the prod path is mocked — if the client hit stage, wiremock
+        // would 404 and the test would fail with ProviderError instead of Ok.
+        Mock::given(method("POST"))
+            .and(path("/edit/v1/render"))
+            .and(header("x-api-key", "sk-test"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "success": true,
+                "response": { "id": "render-prod-1", "message": "Queued" }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = ShotstackClient::for_test_with_env(
+            key_store_with_key(),
+            server.uri(),
+            ShotstackEnv::Prod,
+        );
+        let id = client
+            .assemble_timeline(minimal_timeline_body())
+            .await
+            .expect("prod assemble_timeline succeeds");
+        assert_eq!(id, "render-prod-1");
+    }
+
+    #[tokio::test]
+    async fn prod_env_polls_v1_render_path() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/edit/v1/render/r-prod"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "response": {
+                    "status": "done",
+                    "url": "https://cdn.shotstack.io/out/r-prod.mp4"
+                }
+            })))
+            .expect(1..)
+            .mount(&server)
+            .await;
+
+        let client = ShotstackClient::for_test_with_env(
+            key_store_with_key(),
+            server.uri(),
+            ShotstackEnv::Prod,
+        );
+        let body = client.poll_render("r-prod").await.unwrap();
+        assert_eq!(
+            body.pointer("/response/url").and_then(|v| v.as_str()),
+            Some("https://cdn.shotstack.io/out/r-prod.mp4")
+        );
+    }
+
+    #[test]
+    fn build_body_does_not_leak_user_prompt() {
+        // Regression: the pre-FU #146 body stashed `_prompt` on every render
+        // submission, exposing potentially sensitive user text in Shotstack
+        // dashboards + logs. Assert no field references the prompt.
+        let req = request("super secret user prompt");
+        let body = ShotstackClient::build_body(&req);
+        let serialised = body.to_string();
+        assert!(
+            !serialised.contains("super secret user prompt"),
+            "build_body leaked user prompt into payload: {serialised}"
+        );
+        // Positive shape: body still has the two keys Shotstack requires.
+        assert!(body.get("timeline").is_some());
+        assert!(body.get("output").is_some());
     }
 
     #[tokio::test]

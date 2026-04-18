@@ -129,8 +129,17 @@ impl VideoPipeline for RouterVideoPipeline {
             .map_err(router_to_pipeline_err)?;
         let video_url = Self::extract_video_url(&resp).ok_or(VideoPipelineError::NoOutput)?;
         // Best-effort download: a failed fetch falls back to `None` so the
-        // frontend can still render from the remote URL.
-        let local_path = self.download_to_cache(&video_url).await.ok();
+        // frontend can still render from the remote URL. Log the failure
+        // (FU #146) so silent network issues surface in logs.
+        let local_path = match self.download_to_cache(&video_url).await {
+            Ok(p) => Some(p),
+            Err(e) => {
+                eprintln!(
+                    "[video-pipeline] download failed for {video_url}, falling back to remote URL: {e}"
+                );
+                None
+            }
+        };
         Ok(VideoResult {
             video_url,
             local_path,
@@ -174,7 +183,15 @@ impl VideoPipeline for RouterVideoPipeline {
             .await
             .map_err(router_to_pipeline_err)?;
         let video_url = Self::extract_video_url(&resp).ok_or(VideoPipelineError::NoOutput)?;
-        let local_path = self.download_to_cache(&video_url).await.ok();
+        let local_path = match self.download_to_cache(&video_url).await {
+            Ok(p) => Some(p),
+            Err(e) => {
+                eprintln!(
+                    "[video-pipeline] download failed for {video_url}, falling back to remote URL: {e}"
+                );
+                None
+            }
+        };
         Ok(VideoResult {
             video_url,
             local_path,

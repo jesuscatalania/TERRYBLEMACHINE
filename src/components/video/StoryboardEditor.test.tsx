@@ -9,6 +9,7 @@ function sampleBoard(): Storyboard {
     template: "commercial",
     shots: [
       {
+        id: "shot-a",
         index: 1,
         description: "a",
         style: "",
@@ -17,6 +18,7 @@ function sampleBoard(): Storyboard {
         transition: "cut",
       },
       {
+        id: "shot-b",
         index: 2,
         description: "b",
         style: "",
@@ -36,8 +38,8 @@ describe("StoryboardEditor", () => {
 
   it("renders each shot", () => {
     render(<StoryboardEditor storyboard={sampleBoard()} onChange={() => {}} />);
-    expect(screen.getByTestId("shot-card-1")).toBeInTheDocument();
-    expect(screen.getByTestId("shot-card-2")).toBeInTheDocument();
+    expect(screen.getByTestId("shot-card-shot-a")).toBeInTheDocument();
+    expect(screen.getByTestId("shot-card-shot-b")).toBeInTheDocument();
   });
 
   it("removes a shot and renumbers", () => {
@@ -57,6 +59,27 @@ describe("StoryboardEditor", () => {
     const next = onChange.mock.calls[0][0];
     expect(next.shots).toHaveLength(3);
     expect(next.shots[2].index).toBe(3);
+    // New shots must carry a stable client-side id so React doesn't remount
+    // them when a later reorder renumbers everyone's `index`.
+    expect(typeof next.shots[2].id).toBe("string");
+    expect(next.shots[2].id.length).toBeGreaterThan(0);
+  });
+
+  it("preserves shot id on reorder so React does not remount inputs", () => {
+    const onChange = vi.fn();
+    render(<StoryboardEditor storyboard={sampleBoard()} onChange={onChange} />);
+    // Simulate drag-drop: start at shot 1, drop on shot 2.
+    const first = screen.getByTestId("shot-card-shot-a");
+    const second = screen.getByTestId("shot-card-shot-b");
+    fireEvent.dragStart(first);
+    fireEvent.dragOver(second);
+    fireEvent.drop(second);
+    const next = onChange.mock.calls[0][0];
+    expect(next.shots[0].id).toBe("shot-b");
+    expect(next.shots[1].id).toBe("shot-a");
+    // Indexes get renumbered to 1..N after reorder.
+    expect(next.shots[0].index).toBe(1);
+    expect(next.shots[1].index).toBe(2);
   });
 
   it("updates shot description", () => {

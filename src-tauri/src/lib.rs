@@ -69,13 +69,26 @@ pub fn run() {
             let root = resolve_default_root(app.handle());
             app.manage(ProjectStoreState::new(root));
 
-            // Taste engine scoped to the workspace-local meingeschmack/.
-            // Reference images are routed through the production
-            // ClaudeVisionAnalyzer so the live profile reflects the user's
-            // actual moodboard, not deterministic stubs.
-            let meingeschmack_root = std::env::current_dir()
-                .unwrap_or_else(|_| std::path::PathBuf::from("."))
-                .join("meingeschmack");
+            // Resolve sidecar paths relative to the process CWD. This works when
+            // the binary is launched from the repo root (cargo/pnpm dev). When
+            // Tauri is launched from Finder/Launchpad the CWD is `/`, which
+            // silently breaks every sidecar below (meingeschmack/, scripts/,
+            // remotion/). A proper fix is bundling these directories as Tauri
+            // resources and resolving via `app.path().resource_dir()`, which
+            // requires `tauri.conf.json` bundle changes out of scope for this
+            // follow-up. Until then we at least log a loud warning so the
+            // failure mode isn't silent at first use.
+            //   FU #145 — revisit when we wire up resource bundling.
+            let base_dir = std::env::current_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+
+            let meingeschmack_root = base_dir.join("meingeschmack");
+            if !meingeschmack_root.exists() {
+                eprintln!(
+                    "[startup] meingeschmack/ not found under {} — taste engine will start empty (FU #145)",
+                    base_dir.display()
+                );
+            }
             let engine = Arc::new(TasteEngine::new(
                 meingeschmack_root.clone(),
                 Arc::new(ClaudeVisionAnalyzer::new(Arc::clone(&ai_router_for_setup))),
@@ -103,11 +116,15 @@ pub fn run() {
             });
 
             // Website analyzer sidecar — expects scripts/url_analyzer.mjs
-            // in the app's working directory + `node` on PATH.
-            let script_path = std::env::current_dir()
-                .unwrap_or_else(|_| std::path::PathBuf::from("."))
-                .join("scripts")
-                .join("url_analyzer.mjs");
+            // in the app's working directory + `node` on PATH. Log a warning
+            // if the script is missing (FU #145 — see comment on `base_dir`).
+            let script_path = base_dir.join("scripts").join("url_analyzer.mjs");
+            if !script_path.exists() {
+                eprintln!(
+                    "[startup] scripts/url_analyzer.mjs not found at {} — analyze_url will fail (FU #145)",
+                    script_path.display()
+                );
+            }
             let analyzer: Arc<dyn UrlAnalyzer> = Arc::new(PlaywrightUrlAnalyzer::new(script_path));
             app.manage(WebsiteAnalyzerState::new(analyzer));
 
@@ -166,9 +183,14 @@ pub fn run() {
             // workspace-local remotion/ subpackage. Output lands in
             // <cache-dir>/terryblemachine/remotion-renders/<composition>-<hash>.mp4
             // so repeat renders of the same (composition, props) are free.
-            let remotion_root = std::env::current_dir()
-                .unwrap_or_else(|_| std::path::PathBuf::from("."))
-                .join("remotion");
+            // Log a warning if the subpackage is missing (FU #145).
+            let remotion_root = base_dir.join("remotion");
+            if !remotion_root.exists() {
+                eprintln!(
+                    "[startup] remotion/ not found at {} — render_remotion will fail (FU #145)",
+                    remotion_root.display()
+                );
+            }
             app.manage(remotion::RemotionState::new(remotion_root));
 
             // Shotstack timeline assembler — shares the keystore via its own
