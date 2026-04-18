@@ -29,11 +29,21 @@ const DEFAULT_RATE_PER_SEC: usize = 5;
 const TEXT_3D_PATH: &str = "/openapi/v2/text-to-3d";
 const IMAGE_3D_PATH: &str = "/openapi/v2/image-to-3d";
 
+/// Upper bound for task-status poll iterations. With exponential back-off from
+/// 2s to 15s this allows for roughly 5 minutes of waiting before we surrender
+/// and bubble a `Timeout` to the router (which may fall back).
+const DEFAULT_POLL_MAX_ATTEMPTS: u32 = 60;
+const DEFAULT_POLL_INITIAL_DELAY: Duration = Duration::from_secs(2);
+const DEFAULT_POLL_MAX_DELAY: Duration = Duration::from_secs(15);
+
 pub struct MeshyClient {
     http: Client,
     base_url: String,
     key_store: Arc<dyn KeyStore>,
     rate: RateLimiter,
+    poll_max_attempts: u32,
+    poll_initial_delay: Duration,
+    poll_max_delay: Duration,
 }
 
 impl MeshyClient {
@@ -55,6 +65,9 @@ impl MeshyClient {
             base_url,
             key_store,
             rate: RateLimiter::new(rate_per_sec),
+            poll_max_attempts: DEFAULT_POLL_MAX_ATTEMPTS,
+            poll_initial_delay: DEFAULT_POLL_INITIAL_DELAY,
+            poll_max_delay: DEFAULT_POLL_MAX_DELAY,
         }
     }
 
@@ -69,7 +82,25 @@ impl MeshyClient {
             base_url,
             key_store,
             rate: RateLimiter::unlimited(),
+            // Tests should not sit spinning for minutes; shrink every knob.
+            poll_max_attempts: DEFAULT_POLL_MAX_ATTEMPTS,
+            poll_initial_delay: Duration::from_millis(10),
+            poll_max_delay: Duration::from_millis(100),
         }
+    }
+
+    /// Like [`Self::for_test`], but with a custom cap on poll attempts. Used
+    /// by the timeout-specific test to guarantee fast failure when the task
+    /// never reaches a terminal state.
+    #[cfg(test)]
+    pub fn for_test_with_poll_budget(
+        key_store: Arc<dyn KeyStore>,
+        base_url: String,
+        max_attempts: u32,
+    ) -> Self {
+        let mut c = Self::for_test(key_store, base_url);
+        c.poll_max_attempts = max_attempts;
+        c
     }
 
     async fn send_request(
@@ -122,7 +153,27 @@ impl MeshyClient {
             "mode": "preview",
             "prompt": request.prompt,
         });
-        self.send_request(model, request, TEXT_3D_PATH, body).await
+        let task_id = self.start_task(TEXT_3D_PATH, &body).await?;
+        let final_body = self.poll_task(&task_id, TEXT_3D_PATH).await?;
+        let glb_url = final_body
+            .get("model_urls")
+            .and_then(|v| v.get("glb"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                ProviderError::Permanent("meshy text-to-3d: missing model_urls.glb".into())
+            })?;
+
+        Ok(AiResponse {
+            request_id: request.id.clone(),
+            model,
+            output: json!({
+                "job_id": task_id,
+                "glb_url": glb_url,
+                "status": "succeeded",
+            }),
+            cost_cents: None,
+            cached: false,
+        })
     }
 
     async fn send_image_3d(
@@ -140,6 +191,87 @@ impl MeshyClient {
             "image_url": image_url,
         });
         self.send_request(model, request, IMAGE_3D_PATH, body).await
+    }
+
+    /// POST the body to `endpoint_path` and extract the `result` task id.
+    /// Shared between `send_text_3d` (polls after) and future image-to-3d
+    /// polling (T9). Kept separate from `send_request` because callers want
+    /// the task id rather than a stub "queued" response.
+    async fn start_task(&self, endpoint_path: &str, body: &Value) -> Result<String, ProviderError> {
+        self.rate.acquire().await;
+        let key = get_api_key(&*self.key_store, KEYCHAIN_SERVICE)?;
+
+        let url = format!("{}{}", self.base_url, endpoint_path);
+        let resp = self
+            .http
+            .post(&url)
+            .bearer_auth(key)
+            .header("content-type", "application/json")
+            .json(body)
+            .send()
+            .await
+            .map_err(map_reqwest_error)?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(map_http_error(status, &text));
+        }
+
+        let parsed: TaskResponse = resp.json().await.map_err(map_reqwest_error)?;
+        if parsed.result.is_empty() {
+            return Err(ProviderError::Permanent(
+                "meshy start: missing `result` task id".into(),
+            ));
+        }
+        Ok(parsed.result)
+    }
+
+    /// Poll `GET {endpoint_path}/{task_id}` until Meshy reports a terminal
+    /// status. Returns the final JSON body on `SUCCEEDED`; maps `FAILED` to
+    /// [`ProviderError::Permanent`] (no retry — the content was rejected) and
+    /// exhausted attempts to [`ProviderError::Timeout`] (transient — router
+    /// may fall back).
+    async fn poll_task(&self, task_id: &str, endpoint_path: &str) -> Result<Value, ProviderError> {
+        let url = format!("{}{}/{}", self.base_url, endpoint_path, task_id);
+        let key = get_api_key(&*self.key_store, KEYCHAIN_SERVICE)?;
+        let mut delay = self.poll_initial_delay;
+
+        for _ in 0..self.poll_max_attempts {
+            let resp = self
+                .http
+                .get(&url)
+                .bearer_auth(&key)
+                .send()
+                .await
+                .map_err(map_reqwest_error)?;
+
+            let status = resp.status();
+            if !status.is_success() {
+                let text = resp.text().await.unwrap_or_default();
+                return Err(map_http_error(status, &text));
+            }
+            let body: Value = resp.json().await.map_err(map_reqwest_error)?;
+
+            match body.get("status").and_then(|v| v.as_str()) {
+                Some("SUCCEEDED") => return Ok(body),
+                Some("FAILED") => {
+                    let msg = body
+                        .get("task_error")
+                        .and_then(|v| v.get("message"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("meshy task failed");
+                    return Err(ProviderError::Permanent(msg.to_string()));
+                }
+                // PENDING / IN_PROGRESS / unknown — keep polling.
+                _ => {
+                    tokio::time::sleep(delay).await;
+                    delay = (delay * 2).min(self.poll_max_delay);
+                }
+            }
+        }
+
+        Err(ProviderError::Timeout)
     }
 }
 
@@ -234,6 +366,17 @@ mod tests {
             .mount(&server)
             .await;
 
+        // Polling now happens inline; immediately return SUCCEEDED with a GLB.
+        Mock::given(method("GET"))
+            .and(path(format!("{}/task-text-123", TEXT_3D_PATH)))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "task-text-123",
+                "status": "SUCCEEDED",
+                "model_urls": { "glb": "https://fake.meshy/model.glb" }
+            })))
+            .mount(&server)
+            .await;
+
         let client = MeshyClient::for_test(key_store_with_key(), server.uri());
         let resp = client
             .execute(Model::MeshyText3D, &text_request("a cute robot"))
@@ -246,7 +389,130 @@ mod tests {
         );
         assert_eq!(
             resp.output.get("status").unwrap().as_str().unwrap(),
-            "queued"
+            "succeeded"
+        );
+        assert_eq!(
+            resp.output.get("glb_url").unwrap().as_str().unwrap(),
+            "https://fake.meshy/model.glb"
+        );
+    }
+
+    #[tokio::test]
+    async fn text_to_3d_polls_until_succeeded_then_returns_glb_url() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path(TEXT_3D_PATH))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "result": "t1" })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        // First GET responds IN_PROGRESS (budget of 1), then the second mount
+        // takes over and returns SUCCEEDED. wiremock processes mocks FIFO and
+        // retires mocks whose call budget is exhausted.
+        Mock::given(method("GET"))
+            .and(path(format!("{}/t1", TEXT_3D_PATH)))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "t1",
+                "status": "IN_PROGRESS",
+                "progress": 25
+            })))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!("{}/t1", TEXT_3D_PATH)))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "t1",
+                "status": "SUCCEEDED",
+                "model_urls": { "glb": "https://fake.meshy/model.glb" }
+            })))
+            .mount(&server)
+            .await;
+
+        let client = MeshyClient::for_test(key_store_with_key(), server.uri());
+        let resp = client
+            .execute(Model::MeshyText3D, &text_request("a coffee cup"))
+            .await
+            .expect("text 3d polling succeeds");
+
+        assert_eq!(
+            resp.output.get("glb_url").and_then(|v| v.as_str()),
+            Some("https://fake.meshy/model.glb")
+        );
+        assert_eq!(
+            resp.output.get("status").and_then(|v| v.as_str()),
+            Some("succeeded")
+        );
+        assert_eq!(
+            resp.output.get("job_id").and_then(|v| v.as_str()),
+            Some("t1")
+        );
+    }
+
+    #[tokio::test]
+    async fn text_to_3d_propagates_failed_status() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(TEXT_3D_PATH))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "result": "t1" })))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!("{}/t1", TEXT_3D_PATH)))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "status": "FAILED",
+                "task_error": { "message": "quota exceeded" }
+            })))
+            .mount(&server)
+            .await;
+
+        let client = MeshyClient::for_test(key_store_with_key(), server.uri());
+        let err = client
+            .execute(Model::MeshyText3D, &text_request("x"))
+            .await
+            .unwrap_err();
+        let s = err.to_string();
+        assert!(
+            matches!(err, ProviderError::Permanent(_)),
+            "expected Permanent, got {err:?}"
+        );
+        assert!(
+            s.contains("quota"),
+            "error should bubble Meshy message, got: {s}"
+        );
+    }
+
+    #[tokio::test]
+    async fn text_to_3d_times_out_after_max_attempts() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(TEXT_3D_PATH))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "result": "t1" })))
+            .mount(&server)
+            .await;
+
+        // Always IN_PROGRESS — polling should give up.
+        Mock::given(method("GET"))
+            .and(path(format!("{}/t1", TEXT_3D_PATH)))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "status": "IN_PROGRESS"
+            })))
+            .mount(&server)
+            .await;
+
+        let client = MeshyClient::for_test_with_poll_budget(key_store_with_key(), server.uri(), 2);
+        let err = client
+            .execute(Model::MeshyText3D, &text_request("x"))
+            .await
+            .unwrap_err();
+        // Timeout is transient so the router can fall back.
+        assert!(
+            matches!(err, ProviderError::Timeout),
+            "expected Timeout, got {err:?}"
         );
     }
 
