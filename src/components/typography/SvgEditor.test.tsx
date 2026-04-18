@@ -107,4 +107,17 @@ describe("SvgEditor text methods", () => {
     const tb = await ref.current?.addText("A", { ...BASE_STYLE, size: 100, kerning: 10 });
     expect(tb?.charSpacing).toBe(100);
   });
+
+  it("updateText falls back to last-created Textbox when active object is not text", async () => {
+    const ref = createRef<SvgEditorHandle>();
+    render(<SvgEditor ref={ref} />);
+    const tb = await ref.current?.addText("Acme", BASE_STYLE);
+    // Simulate a post-vectorize state where the group (or anything non-text)
+    // becomes the active object — updateText must still patch the Textbox.
+    const c = ref.current?.canvas();
+    c?.discardActiveObject();
+    const ok = await ref.current?.updateText({ ...BASE_STYLE, size: 144 });
+    expect(ok).toBe(true);
+    expect(tb?.fontSize).toBe(144);
+  });
 });

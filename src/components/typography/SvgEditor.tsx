@@ -65,6 +65,12 @@ export const SvgEditor = forwardRef<SvgEditorHandle, SvgEditorProps>(function Sv
   // doesn't need them in its dep array — matches the pattern in
   // `graphic2d/FabricCanvas.tsx` and avoids a biome-ignore comment.
   const initialSizeRef = useRef({ width, height });
+  // Track the last Textbox we created so `updateText` can patch it even
+  // after `loadSvg` has stolen the active-object crown (the SVG group
+  // becomes the selection after vectorize). Without this fallback, sliding
+  // the kerning/size sliders after a vectorize silently no-ops until the
+  // user re-clicks the textbox — a surprising UX cliff.
+  const lastTextRef = useRef<fabric.Textbox | null>(null);
 
   useEffect(() => {
     if (!canvasElRef.current) return;
@@ -90,6 +96,9 @@ export const SvgEditor = forwardRef<SvgEditorHandle, SvgEditorProps>(function Sv
         const c = canvasRef.current;
         if (!c) return;
         c.clear();
+        // `c.clear()` removed any previous Textbox — forget the ref so
+        // `updateText`'s fallback doesn't patch a detached object.
+        lastTextRef.current = null;
         c.setDimensions({ width, height });
         c.backgroundColor = "#F7F7F8";
         const result = await fabric.loadSVGFromString(svg);
@@ -125,8 +134,6 @@ export const SvgEditor = forwardRef<SvgEditorHandle, SvgEditorProps>(function Sv
         // pattern.
         await injectGoogleFont(style.font as GoogleFont);
         const tb = new fabric.Textbox(text, {
-          left: c.getWidth() / 2,
-          top: c.getHeight() / 2,
           originX: "center",
           originY: "center",
           fontFamily: style.font,
@@ -139,17 +146,34 @@ export const SvgEditor = forwardRef<SvgEditorHandle, SvgEditorProps>(function Sv
           // see the SvgEditorHandle TSDoc for why.
         });
         c.add(tb);
+        // Use viewportCenterObject so the Textbox lands at the canvas's
+        // CURRENT center rather than a stale `c.getWidth()/2` snapshot.
+        // Matters when the user clicks "Add text" before "Vectorize" —
+        // `loadSvg` will later resize the canvas, but viewportCenterObject
+        // reflects the dimensions at insertion time.
+        c.viewportCenterObject(tb);
         c.setActiveObject(tb);
         c.requestRenderAll();
+        lastTextRef.current = tb;
         return tb;
       },
       async updateText(style) {
         const c = canvasRef.current;
         if (!c) return false;
+        // Prefer the currently-active Textbox, but fall back to the last
+        // one we created so post-vectorize slider changes still apply.
         const active = c.getActiveObject();
-        if (!(active instanceof fabric.Textbox)) return false;
+        const target = active instanceof fabric.Textbox ? active : lastTextRef.current;
+        if (!target) return false;
+        // If the fallback textbox was removed from the canvas (e.g. via
+        // `c.clear()` in loadSvg), skip silently — patching a detached
+        // object would mislead the caller.
+        if (!c.getObjects().includes(target)) {
+          lastTextRef.current = null;
+          return false;
+        }
         await injectGoogleFont(style.font as GoogleFont);
-        active.set({
+        target.set({
           fontFamily: style.font,
           fontSize: style.size,
           fill: style.color,
