@@ -1,19 +1,28 @@
-//! Replicate API client — a single `/v1/predictions` endpoint that creates a
-//! prediction for a versioned model (e.g. Flux-Dev).
+//! Replicate API client — creates predictions and polls until completion.
 //!
-//! Follows the reference pattern in [`super::claude`]:
-//! 1. `new` / `with_base_url` / `for_test` constructors.
-//! 2. A private `send_request` that acquires a rate-limit permit, loads the
-//!    API key, POSTs `{ version, input }`, and maps HTTP / reqwest errors via
-//!    `common`.
-//! 3. `impl AiClient` supports only [`Model::ReplicateFluxDev`].
+//! Supports two dispatch shapes:
+//! 1. **Version-pinned**: `POST /v1/predictions` with `{ version, input }`.
+//!    Used for [`Model::ReplicateFluxDev`] where we want reproducibility
+//!    across a specific Flux-Dev weight release.
+//! 2. **Slug-based**: `POST /v1/models/<owner>/<name>/predictions` with
+//!    `{ input }` — always routes to the model's default version and avoids
+//!    hardcoded version-hash maintenance. Used for
+//!    [`Model::ReplicateDepthAnythingV2`] and [`Model::ReplicateTripoSR`].
+//!
+//! Replicate responses come in three phases:
+//! 1. 201 Created: `{ id, status: "starting", urls: { get }, ... }`.
+//! 2. GET poll: `{ status: "processing" }` — still working.
+//! 3. GET poll: `{ status: "succeeded", output: ... }` — done.
+//!
+//! With `Prefer: wait` the initial POST blocks up to 60s and often inlines
+//! `succeeded`, covering the fast path. Longer jobs (TripoSR in particular)
+//! need a follow-up polling loop — mirrors Meshy's T8 pattern.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::common::{get_api_key, map_http_error, map_reqwest_error, RateLimiter};
@@ -34,28 +43,38 @@ const DEFAULT_RATE_PER_SEC: usize = 10;
 /// hard-coding it here keeps the client self-contained for Schritt 2.2.
 const FLUX_DEV_VERSION: &str = "f2ab8a5569070ef6f6b2f0ede5a3f1a7fbfe0a5e1f6fb1bdf7d55c1e0e1b1b0b";
 
-/// Replicate model version for `depth-anything/depth-anything-v2-large`.
-///
-/// TODO(phase-5): Verify this hash against
-/// <https://replicate.com/depth-anything/depth-anything-v2-large/api>. If
-/// Replicate's model-slug routing (without explicit version) becomes
-/// available on the `/v1/predictions` endpoint, prefer that over a hardcoded
-/// hash — more stable across upgrades.
-const DEPTH_ANYTHING_V2_VERSION: &str = "2aa0d0d2d4e8a6f5e82a83a69e8fafb2afaec6a7";
+/// Replicate model slugs. Slug-based endpoints avoid version-hash maintenance
+/// but require verifying the slug exists at https://replicate.com/<slug>.
+const DEPTH_ANYTHING_V2_SLUG: &str = "depth-anything/depth-anything-v2-large";
+/// TripoSR slug. TODO(phase-5): verify against
+/// <https://replicate.com/camenduru/tripo-sr>; the owner may vary across
+/// community mirrors (e.g. `tripo3d/tripo`).
+const TRIPO_SR_SLUG: &str = "camenduru/tripo-sr";
 
-/// Replicate model version for TripoSR (camenduru/tripo-sr or similar host).
-///
-/// TODO(phase-5): Verify this hash at
-/// <https://replicate.com/camenduru/tripo-sr/api> and update if Replicate
-/// has released a more stable version or slug-based endpoint. Same caveat
-/// as [`DEPTH_ANYTHING_V2_VERSION`].
-const TRIPO_SR_VERSION: &str = "e8f6c45206993f297372f5436b90350817bd9b4a0d52d2a76df50c1c8afa2b3c";
+/// Upper bound for prediction-status poll iterations. With exponential
+/// back-off from 2s to 15s this sums to roughly 6 minutes of waiting before
+/// we surrender and bubble a `Timeout` to the router. Matches Meshy's
+/// `poll_task` shape (T8) — TripoSR jobs can take longer than Flux/Depth so
+/// the ceiling is a bit higher than Meshy's 20-attempt default.
+const DEFAULT_REPLICATE_POLL_MAX_ATTEMPTS: u32 = 30;
+const DEFAULT_REPLICATE_POLL_INITIAL_DELAY: Duration = Duration::from_secs(2);
+const DEFAULT_REPLICATE_POLL_MAX_DELAY: Duration = Duration::from_secs(15);
 
 pub struct ReplicateClient {
     http: Client,
     base_url: String,
     key_store: Arc<dyn KeyStore>,
     rate: RateLimiter,
+    poll_max_attempts: u32,
+    poll_initial_delay: Duration,
+    poll_max_delay: Duration,
+}
+
+/// Dispatch shape for a given [`Model`]: either a pinned version hash or a
+/// stable `owner/name` slug.
+enum Endpoint {
+    Version(&'static str),
+    Slug(&'static str),
 }
 
 impl ReplicateClient {
@@ -77,10 +96,14 @@ impl ReplicateClient {
             base_url,
             key_store,
             rate: RateLimiter::new(rate_per_sec),
+            poll_max_attempts: DEFAULT_REPLICATE_POLL_MAX_ATTEMPTS,
+            poll_initial_delay: DEFAULT_REPLICATE_POLL_INITIAL_DELAY,
+            poll_max_delay: DEFAULT_REPLICATE_POLL_MAX_DELAY,
         }
     }
 
-    /// Test-only constructor that skips the refill task.
+    /// Test-only constructor that skips the refill task and collapses poll
+    /// delays so tests don't sit spinning for minutes.
     #[cfg(test)]
     pub fn for_test(key_store: Arc<dyn KeyStore>, base_url: String) -> Self {
         let http = Client::builder()
@@ -92,20 +115,37 @@ impl ReplicateClient {
             base_url,
             key_store,
             rate: RateLimiter::unlimited(),
+            poll_max_attempts: DEFAULT_REPLICATE_POLL_MAX_ATTEMPTS,
+            poll_initial_delay: Duration::from_millis(10),
+            poll_max_delay: Duration::from_millis(100),
         }
     }
 
-    fn version_for(model: Model) -> Option<&'static str> {
+    /// Like [`Self::for_test`], with a custom cap on poll attempts. Used by
+    /// the timeout-specific test so we fail fast when a prediction never
+    /// reaches a terminal state.
+    #[cfg(test)]
+    pub fn for_test_with_poll_budget(
+        key_store: Arc<dyn KeyStore>,
+        base_url: String,
+        max_attempts: u32,
+    ) -> Self {
+        let mut c = Self::for_test(key_store, base_url);
+        c.poll_max_attempts = max_attempts;
+        c
+    }
+
+    fn endpoint_for(model: Model) -> Option<Endpoint> {
         match model {
-            Model::ReplicateFluxDev => Some(FLUX_DEV_VERSION),
-            Model::ReplicateDepthAnythingV2 => Some(DEPTH_ANYTHING_V2_VERSION),
-            Model::ReplicateTripoSR => Some(TRIPO_SR_VERSION),
+            Model::ReplicateFluxDev => Some(Endpoint::Version(FLUX_DEV_VERSION)),
+            Model::ReplicateDepthAnythingV2 => Some(Endpoint::Slug(DEPTH_ANYTHING_V2_SLUG)),
+            Model::ReplicateTripoSR => Some(Endpoint::Slug(TRIPO_SR_SLUG)),
             _ => None,
         }
     }
 
     /// Shape the `input` object for a given model. Replicate's predictions
-    /// endpoint takes `{ version, input }` where `input` is model-specific.
+    /// endpoint takes `input` whose schema is model-specific.
     fn input_for(model: Model, request: &AiRequest) -> Result<Value, ProviderError> {
         match model {
             Model::ReplicateFluxDev => Ok(json!({ "prompt": request.prompt })),
@@ -130,9 +170,6 @@ impl ReplicateClient {
                         ProviderError::Permanent("triposr: image_url required in payload".into())
                     })?;
                 // TripoSR on Replicate accepts an `image` input (path or URL).
-                // Field name matches the depth model for consistency; this
-                // may need a tweak once the version hash is verified against
-                // the live API.
                 Ok(json!({ "image": image_url }))
             }
             _ => Err(ProviderError::Permanent(format!(
@@ -148,20 +185,25 @@ impl ReplicateClient {
     ) -> Result<AiResponse, ProviderError> {
         self.rate.acquire().await;
         let key = get_api_key(&*self.key_store, KEYCHAIN_SERVICE)?;
-        let version = Self::version_for(model)
+        let endpoint = Self::endpoint_for(model)
             .ok_or_else(|| ProviderError::Permanent(format!("unsupported model {model:?}")))?;
         let input = Self::input_for(model, request)?;
 
-        let body = json!({
-            "version": version,
-            "input": input,
-        });
+        let (url, body) = match endpoint {
+            Endpoint::Version(version) => (
+                format!("{}/v1/predictions", self.base_url),
+                json!({ "version": version, "input": input }),
+            ),
+            Endpoint::Slug(slug) => (
+                format!("{}/v1/models/{slug}/predictions", self.base_url),
+                json!({ "input": input }),
+            ),
+        };
 
-        let url = format!("{}/v1/predictions", self.base_url);
         // `Prefer: wait` asks Replicate to block up to 60s for the prediction
-        // to finish and inline the result in the response. Depth-Anything v2
-        // typically returns in <30s, which keeps us well under that ceiling
-        // and avoids a separate polling loop for the common case.
+        // to finish and inline the result in the response. Fast models return
+        // directly; longer ones (TripoSR) still come back with a "starting"
+        // or "processing" status and need the polling fallback below.
         let resp = self
             .http
             .post(&url)
@@ -179,21 +221,66 @@ impl ReplicateClient {
             return Err(map_http_error(status, &text));
         }
 
-        let parsed: PredictionResponse = resp.json().await.map_err(map_reqwest_error)?;
+        let initial: Value = resp.json().await.map_err(map_reqwest_error)?;
+
+        // If Replicate returns a terminal state inline, keep it. Otherwise
+        // poll `urls.get` until we reach one.
+        let final_body = match initial.get("status").and_then(|v| v.as_str()) {
+            Some("succeeded") | Some("failed") | Some("canceled") => initial,
+            _ => {
+                let get_url = initial
+                    .get("urls")
+                    .and_then(|u| u.get("get"))
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        ProviderError::Permanent(
+                            "replicate: response missing urls.get for polling".into(),
+                        )
+                    })?
+                    .to_string();
+                self.poll_prediction(&get_url).await?
+            }
+        };
+
+        // Guard the terminal-status check in case `poll_prediction` returns a
+        // non-succeeded body (it shouldn't — but a belt-and-braces check keeps
+        // the error surface honest for callers).
+        match final_body.get("status").and_then(|v| v.as_str()) {
+            Some("succeeded") => {}
+            Some("failed") | Some("canceled") => {
+                let msg = final_body
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("replicate prediction failed");
+                return Err(ProviderError::Permanent(msg.to_string()));
+            }
+            other => {
+                return Err(ProviderError::Permanent(format!(
+                    "replicate: unexpected terminal status: {other:?}"
+                )));
+            }
+        }
+
+        let output_value = final_body.get("output").cloned().unwrap_or(Value::Null);
+        let id = final_body
+            .get("id")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned);
+        let urls = final_body.get("urls").cloned();
+
         let mut output = json!({
-            "id": parsed.id,
-            "status": parsed.status,
-            "urls": parsed.urls,
-            "output": parsed.output,
+            "id": id,
+            "status": "succeeded",
+            "urls": urls,
+            "output": output_value,
         });
 
         // TripoSR returns a single GLB URL under `output`. The mesh pipeline
         // extracts meshes via `output.glb_url`, so surface the URL under
         // that key too for a frictionless hand-off.
         if matches!(model, Model::ReplicateTripoSR) {
-            if let Some(url) = parsed
-                .output
-                .as_ref()
+            if let Some(url) = final_body
+                .get("output")
                 .and_then(|v| v.as_str())
                 .map(str::to_owned)
             {
@@ -211,28 +298,55 @@ impl ReplicateClient {
             cached: false,
         })
     }
-}
 
-// ─── Response types ─────────────────────────────────────────────────
+    /// Poll `GET <get_url>` (the `urls.get` field from the initial POST) until
+    /// Replicate reports a terminal status. Returns the final JSON body on
+    /// `succeeded`; maps `failed` / `canceled` to [`ProviderError::Permanent`]
+    /// (no retry — the content was rejected) and exhausted attempts to
+    /// [`ProviderError::Timeout`] (transient — router may fall back).
+    async fn poll_prediction(&self, get_url: &str) -> Result<Value, ProviderError> {
+        let key = get_api_key(&*self.key_store, KEYCHAIN_SERVICE)?;
+        let mut delay = self.poll_initial_delay;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct PredictionUrls {
-    #[serde(default)]
-    get: Option<String>,
-    #[serde(default)]
-    cancel: Option<String>,
-}
+        for _ in 0..self.poll_max_attempts {
+            // Rate-limit every poll so concurrent predictions can't burst GETs
+            // past Replicate's per-second cap. `RateLimiter::unlimited()` (used
+            // by `for_test*`) is a zero-cost no-op in tests.
+            self.rate.acquire().await;
+            let resp = self
+                .http
+                .get(get_url)
+                .header("authorization", format!("Token {}", &key))
+                .send()
+                .await
+                .map_err(map_reqwest_error)?;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct PredictionResponse {
-    #[serde(default)]
-    id: Option<String>,
-    #[serde(default)]
-    status: Option<String>,
-    #[serde(default)]
-    urls: Option<PredictionUrls>,
-    #[serde(default)]
-    output: Option<Value>,
+            let status = resp.status();
+            if !status.is_success() {
+                let text = resp.text().await.unwrap_or_default();
+                return Err(map_http_error(status, &text));
+            }
+            let body: Value = resp.json().await.map_err(map_reqwest_error)?;
+
+            match body.get("status").and_then(|v| v.as_str()) {
+                Some("succeeded") => return Ok(body),
+                Some("failed") | Some("canceled") => {
+                    let msg = body
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("replicate prediction failed");
+                    return Err(ProviderError::Permanent(msg.to_string()));
+                }
+                // starting / processing / unknown — keep polling.
+                _ => {
+                    tokio::time::sleep(delay).await;
+                    delay = (delay * 2).min(self.poll_max_delay);
+                }
+            }
+        }
+
+        Err(ProviderError::Timeout)
+    }
 }
 
 #[async_trait]
@@ -242,7 +356,7 @@ impl AiClient for ReplicateClient {
     }
 
     fn supports(&self, model: Model) -> bool {
-        Self::version_for(model).is_some()
+        Self::endpoint_for(model).is_some()
     }
 
     async fn execute(
@@ -300,12 +414,12 @@ mod tests {
             .and(header("authorization", "Token r8-test"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "id": "pred-123",
-                "status": "starting",
+                "status": "succeeded",
                 "urls": {
                     "get": "https://api.replicate.com/v1/predictions/pred-123",
                     "cancel": "https://api.replicate.com/v1/predictions/pred-123/cancel",
                 },
-                "output": null,
+                "output": "https://fake.replicate/out.png",
             })))
             .expect(1)
             .mount(&server)
@@ -320,7 +434,7 @@ mod tests {
         assert_eq!(resp.output.get("id").unwrap().as_str().unwrap(), "pred-123");
         assert_eq!(
             resp.output.get("status").unwrap().as_str().unwrap(),
-            "starting"
+            "succeeded"
         );
         assert_eq!(
             resp.output
@@ -400,16 +514,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn depth_anything_v2_posts_version_and_image() {
+    async fn depth_anything_v2_posts_to_slug_endpoint() {
         use wiremock::matchers::body_partial_json;
 
         let server = MockServer::start().await;
         Mock::given(method("POST"))
-            .and(path("/v1/predictions"))
+            .and(path(
+                "/v1/models/depth-anything/depth-anything-v2-large/predictions",
+            ))
             .and(header("authorization", "Token r8-test"))
             .and(header("Prefer", "wait"))
             .and(body_partial_json(json!({
-                "version": DEPTH_ANYTHING_V2_VERSION,
                 "input": { "image": "https://src/a.png" },
             })))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -450,16 +565,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn triposr_posts_with_version_and_image() {
+    async fn triposr_posts_to_slug_endpoint() {
         use wiremock::matchers::body_partial_json;
 
         let server = MockServer::start().await;
         Mock::given(method("POST"))
-            .and(path("/v1/predictions"))
+            .and(path("/v1/models/camenduru/tripo-sr/predictions"))
             .and(header("authorization", "Token r8-test"))
             .and(header("Prefer", "wait"))
             .and(body_partial_json(json!({
-                "version": TRIPO_SR_VERSION,
                 "input": { "image": "https://src/a.png" },
             })))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -552,5 +666,94 @@ mod tests {
             .await
             .expect_err("missing image_url must be a Permanent error");
         assert!(matches!(err, ProviderError::Permanent(_)));
+    }
+
+    #[tokio::test]
+    async fn replicate_polls_starting_prediction_until_succeeded() {
+        use wiremock::matchers::body_partial_json;
+
+        let server = MockServer::start().await;
+
+        // Initial POST returns status=starting with urls.get pointing at our
+        // mock server. No output yet — this is the bug FU #129 reported:
+        // without polling the client would treat this as NoOutput.
+        let poll_url = format!("{}/v1/predictions/pred-polling-1", server.uri());
+        Mock::given(method("POST"))
+            .and(path("/v1/models/camenduru/tripo-sr/predictions"))
+            .and(header("Prefer", "wait"))
+            .and(body_partial_json(json!({
+                "input": { "image": "https://src/a.png" },
+            })))
+            .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+                "id": "pred-polling-1",
+                "status": "starting",
+                "urls": { "get": poll_url.clone() },
+                "output": null,
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        // First GET: still processing.
+        Mock::given(method("GET"))
+            .and(path("/v1/predictions/pred-polling-1"))
+            .and(header("authorization", "Token r8-test"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "pred-polling-1",
+                "status": "processing",
+                "output": null,
+            })))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+
+        // Subsequent GETs: succeeded with the GLB URL.
+        Mock::given(method("GET"))
+            .and(path("/v1/predictions/pred-polling-1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "pred-polling-1",
+                "status": "succeeded",
+                "urls": { "get": poll_url.clone() },
+                "output": "https://fake.replicate/polled.glb",
+            })))
+            .mount(&server)
+            .await;
+
+        let client = ReplicateClient::for_test(key_store_with_key(), server.uri());
+        let req = AiRequest {
+            id: "triposr-poll".into(),
+            task: TaskKind::Image3D,
+            priority: Priority::Normal,
+            complexity: Complexity::Simple,
+            prompt: String::new(),
+            payload: json!({ "image_url": "https://src/a.png" }),
+        };
+        let resp = client
+            .execute(Model::ReplicateTripoSR, &req)
+            .await
+            .expect("polled prediction succeeds");
+
+        assert_eq!(resp.model, Model::ReplicateTripoSR);
+        assert_eq!(
+            resp.output
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default(),
+            "succeeded"
+        );
+        assert_eq!(
+            resp.output
+                .get("output")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default(),
+            "https://fake.replicate/polled.glb"
+        );
+        assert_eq!(
+            resp.output
+                .get("glb_url")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default(),
+            "https://fake.replicate/polled.glb"
+        );
     }
 }
