@@ -1,10 +1,21 @@
 import { Sparkles } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { LogoGallery } from "@/components/typography/LogoGallery";
+import { SvgEditor, type SvgEditorHandle } from "@/components/typography/SvgEditor";
+import { TextLogoControls, type TextStyle } from "@/components/typography/TextLogoControls";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { generateLogoVariants, type LogoStyle, type LogoVariant } from "@/lib/logoCommands";
+import { vectorizeImage } from "@/lib/vectorizerCommands";
 import { useUiStore } from "@/stores/uiStore";
+
+const DEFAULT_TEXT_STYLE: TextStyle = {
+  font: "Inter",
+  color: "#F7F7F8",
+  size: 72,
+  kerning: 0,
+  tracking: 0,
+};
 
 export function TypographyPage() {
   const [prompt, setPrompt] = useState("");
@@ -13,7 +24,15 @@ export function TypographyPage() {
   const [busy, setBusy] = useState(false);
   const [variants, setVariants] = useState<LogoVariant[]>([]);
   const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
+  const [textStyle, setTextStyle] = useState<TextStyle>(DEFAULT_TEXT_STYLE);
+  const [vectorizing, setVectorizing] = useState(false);
+  const editorRef = useRef<SvgEditorHandle>(null);
   const notify = useUiStore((s) => s.notify);
+
+  const selectedVariant = selectedUrl
+    ? (variants.find((v) => v.url === selectedUrl) ?? null)
+    : null;
+  const canVectorize = Boolean(selectedVariant?.local_path) && !vectorizing;
 
   async function handleGenerate() {
     if (!prompt.trim()) return;
@@ -36,6 +55,26 @@ export function TypographyPage() {
       });
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleVectorize() {
+    if (!selectedVariant?.local_path) return;
+    setVectorizing(true);
+    try {
+      const result = await vectorizeImage({
+        image_path: selectedVariant.local_path,
+      });
+      await editorRef.current?.loadSvg(result.svg, result.width, result.height);
+      notify({ kind: "success", message: "Vectorized logo" });
+    } catch (err) {
+      notify({
+        kind: "error",
+        message: "Vectorize failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setVectorizing(false);
     }
   }
 
@@ -91,14 +130,27 @@ export function TypographyPage() {
 
       <div className="grid min-h-0 grid-cols-[1fr_18rem]">
         <LogoGallery variants={variants} selectedUrl={selectedUrl} onSelect={setSelectedUrl} />
-        <div className="flex flex-col border-neutral-dark-700 border-l p-3">
+        <div className="flex min-h-0 flex-col gap-3 border-neutral-dark-700 border-l p-3">
           <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
             Editor
           </span>
-          {selectedUrl ? (
-            <div className="mt-2 break-all font-mono text-2xs text-neutral-dark-500">
-              Selected · {selectedUrl.slice(-24)}
-            </div>
+          {selectedVariant ? (
+            <>
+              <div className="flex items-center gap-2">
+                <Button variant="primary" onClick={handleVectorize} disabled={!canVectorize}>
+                  {vectorizing ? "Vectorizing…" : "Vectorize"}
+                </Button>
+                {!selectedVariant.local_path && (
+                  <span className="font-mono text-2xs text-neutral-dark-500">
+                    No local copy yet
+                  </span>
+                )}
+              </div>
+              <div className="min-h-0 flex-1">
+                <SvgEditor ref={editorRef} />
+              </div>
+              <TextLogoControls value={textStyle} onChange={setTextStyle} />
+            </>
           ) : (
             <div className="mt-2 font-mono text-2xs text-neutral-dark-500 uppercase tracking-label">
               No selection
