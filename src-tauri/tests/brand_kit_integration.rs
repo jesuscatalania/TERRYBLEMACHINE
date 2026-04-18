@@ -187,3 +187,110 @@ async fn brand_kit_includes_style_guide_html() {
     // Also verify the top-level BrandKitResult field still carries the same string
     assert_eq!(html, result.style_guide_html);
 }
+
+#[test]
+fn zip_export_contains_all_assets() {
+    use std::io::Read;
+    use terryblemachine_lib::brand_kit::export::{slug_for, write_zip};
+    use terryblemachine_lib::brand_kit::types::BrandKitAsset;
+
+    let tmp = TempDir::new().unwrap();
+    let assets = vec![
+        BrandKitAsset {
+            filename: "a.txt".into(),
+            bytes: b"hello".to_vec(),
+        },
+        BrandKitAsset {
+            filename: "b.svg".into(),
+            bytes: b"<svg/>".to_vec(),
+        },
+    ];
+    let path = write_zip(tmp.path(), &slug_for("Acme Brand"), &assets).unwrap();
+    assert!(path.exists());
+    assert!(path
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("acme-brand"));
+
+    let bytes = std::fs::read(&path).unwrap();
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let names: Vec<String> = (0..archive.len())
+        .map(|i| archive.by_index(i).unwrap().name().to_string())
+        .collect();
+    assert!(names.contains(&"a.txt".to_string()));
+    assert!(names.contains(&"b.svg".to_string()));
+
+    {
+        let mut f = archive.by_name("a.txt").unwrap();
+        let mut content = String::new();
+        f.read_to_string(&mut content).unwrap();
+        assert_eq!(content, "hello");
+    }
+
+    {
+        let mut g = archive.by_name("b.svg").unwrap();
+        let mut svg_content = String::new();
+        g.read_to_string(&mut svg_content).unwrap();
+        assert_eq!(svg_content, "<svg/>");
+    }
+}
+
+#[tokio::test]
+async fn build_plus_zip_roundtrip_contains_all_12_assets() {
+    use std::io::Read;
+    use terryblemachine_lib::brand_kit::export::{slug_for, write_zip};
+
+    let tmp = TempDir::new().unwrap();
+    let src = tmp.path().join("src.png");
+    std::fs::write(&src, tiny_png()).unwrap();
+
+    let kit = StandardBrandKit::new();
+    let input = BrandKitInput {
+        logo_svg: "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"/>".into(),
+        source_png_path: src,
+        brand_name: "Acme Brand".into(),
+        primary_color: "#e85d2d".into(),
+        accent_color: "#0E0E11".into(),
+        font: "Inter".into(),
+    };
+    let brand_slug = slug_for(&input.brand_name);
+    let result = kit.build(input).await.unwrap();
+
+    let zip_dir = tmp.path().join("out");
+    let zip_path = write_zip(&zip_dir, &brand_slug, &result.assets).unwrap();
+    assert!(zip_path.exists());
+    assert!(zip_path.ends_with("acme-brand-brand-kit.zip"));
+
+    let bytes = std::fs::read(&zip_path).unwrap();
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    assert_eq!(archive.len(), 12);
+    let names: Vec<String> = (0..archive.len())
+        .map(|i| archive.by_index(i).unwrap().name().to_string())
+        .collect();
+    for expected in &[
+        "logo.svg",
+        "favicon-16.png",
+        "favicon-32.png",
+        "favicon-64.png",
+        "logo-128.png",
+        "logo-256.png",
+        "logo-512.png",
+        "print-1024.png",
+        "print-2048.png",
+        "logo-bw.png",
+        "logo-inverted.png",
+        "style-guide.html",
+    ] {
+        assert!(
+            names.iter().any(|n| n == expected),
+            "missing {expected} in zip"
+        );
+    }
+    // Spot-check that style-guide.html survived the round-trip with content
+    let mut f = archive.by_name("style-guide.html").unwrap();
+    let mut html = String::new();
+    f.read_to_string(&mut html).unwrap();
+    assert!(html.contains("Acme Brand"));
+}

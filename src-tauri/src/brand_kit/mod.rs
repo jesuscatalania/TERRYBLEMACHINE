@@ -6,6 +6,7 @@
 //! is a placeholder in T5 and filled in by T6.
 
 pub mod commands;
+pub mod export;
 pub mod pipeline;
 pub mod style_guide;
 pub mod types;

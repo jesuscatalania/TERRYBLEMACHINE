@@ -283,6 +283,7 @@ pub fn run() {
             logo_pipeline::commands::generate_logo_variants,
             vectorizer::commands::vectorize_image,
             brand_kit::commands::build_brand_kit,
+            brand_kit::commands::export_brand_kit,
             video_pipeline::commands::generate_video_from_text,
             video_pipeline::commands::generate_video_from_image,
             remotion::commands::render_remotion,

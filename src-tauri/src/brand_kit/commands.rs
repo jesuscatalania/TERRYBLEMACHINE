@@ -45,3 +45,22 @@ pub async fn build_brand_kit(
 ) -> Result<BrandKitResult, BrandKitIpcError> {
     state.0.build(input).await.map_err(Into::into)
 }
+
+#[tauri::command]
+pub async fn export_brand_kit(
+    state: State<'_, BrandKitState>,
+    input: BrandKitInput,
+    destination: std::path::PathBuf,
+) -> Result<std::path::PathBuf, BrandKitIpcError> {
+    // Compute the brand slug BEFORE the `.await` that moves `input` into
+    // `build` — cloning the whole input just to keep the brand name around
+    // would be wasteful, and borrowing across the await isn't possible
+    // because `build` consumes the value.
+    let brand_slug = super::export::slug_for(&input.brand_name);
+    let result = state
+        .0
+        .build(input)
+        .await
+        .map_err(Into::<BrandKitIpcError>::into)?;
+    super::export::write_zip(&destination, &brand_slug, &result.assets).map_err(Into::into)
+}
