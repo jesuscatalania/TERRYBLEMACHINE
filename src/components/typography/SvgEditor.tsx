@@ -1,5 +1,17 @@
 import * as fabric from "fabric";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import type { TextStyle } from "@/components/typography/TextLogoControls";
+import { type GoogleFont, injectGoogleFont } from "@/lib/googleFonts";
+
+/**
+ * Convert a kerning value in px (as used by TextLogoControls) to Fabric's
+ * charSpacing unit (1/1000 of an em). Fabric docs:
+ * https://fabricjs.com/docs/fabric.Textbox.html#charSpacing
+ */
+function charSpacingFromPx(px: number, fontSize: number): number {
+  if (fontSize <= 0) return 0;
+  return Math.round((px * 1000) / fontSize);
+}
 
 /**
  * Imperative handle for the SVG editor canvas. Mirrors the drei-pattern used
@@ -7,11 +19,32 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
  * without re-renders. Intentionally lighter than `FabricCanvas` — the
  * typography module only needs load/serialize for now; full text-to-SVG
  * editing is deferred polish.
+ *
+ * Note on `TextStyle.tracking`: the `tracking` (word-spacing, px) field is
+ * intentionally NOT applied to the Fabric Textbox. Fabric v6 does not expose
+ * a word-spacing prop, and the usual workaround — string-mangling the input
+ * via `text.split(" ").join(" ".repeat(n))` — mutates the user's content
+ * and breaks copy/paste. The prop remains on the `TextStyle` shape as a
+ * reservation for future work (e.g. rendering into per-word sub-Textboxes
+ * or switching to a DOM-based editor).
  */
 export interface SvgEditorHandle {
   canvas: () => fabric.Canvas | null;
   loadSvg: (svg: string, width: number, height: number) => Promise<void>;
   toSvgString: () => string;
+  /**
+   * Append a new text logo to the canvas, styled per the caller's TextStyle.
+   * Uses the canvas's current content (if any) as a visual anchor — text
+   * lands roughly centered. Returns the new Textbox so the caller can track
+   * it if needed, or null if the canvas isn't mounted.
+   */
+  addText: (text: string, style: TextStyle) => Promise<fabric.Textbox | null>;
+  /**
+   * Apply a TextStyle patch to the currently-active Fabric object if it's
+   * a Textbox. No-op if the active object isn't a Textbox (or nothing is
+   * selected). Returns true if an update was applied.
+   */
+  updateText: (style: TextStyle) => Promise<boolean>;
 }
 
 export interface SvgEditorProps {
@@ -82,6 +115,48 @@ export const SvgEditor = forwardRef<SvgEditorHandle, SvgEditorProps>(function Sv
       toSvgString() {
         const c = canvasRef.current;
         return c?.toSVG() ?? "";
+      },
+      async addText(text, style) {
+        const c = canvasRef.current;
+        if (!c) return null;
+        // Ensure the chosen font is actually loaded before the Textbox
+        // measures its metrics — otherwise first render uses the system
+        // fallback and we'd need a reflow. Mirrors TextLogoControls's
+        // pattern.
+        await injectGoogleFont(style.font as GoogleFont);
+        const tb = new fabric.Textbox(text, {
+          left: c.getWidth() / 2,
+          top: c.getHeight() / 2,
+          originX: "center",
+          originY: "center",
+          fontFamily: style.font,
+          fontSize: style.size,
+          fill: style.color,
+          // Fabric's Textbox uses `charSpacing` (1/1000 em units) for
+          // kerning. Our kerning prop is in px; convert via the helper.
+          charSpacing: charSpacingFromPx(style.kerning, style.size),
+          // `style.tracking` (word-spacing) is intentionally not applied —
+          // see the SvgEditorHandle TSDoc for why.
+        });
+        c.add(tb);
+        c.setActiveObject(tb);
+        c.requestRenderAll();
+        return tb;
+      },
+      async updateText(style) {
+        const c = canvasRef.current;
+        if (!c) return false;
+        const active = c.getActiveObject();
+        if (!(active instanceof fabric.Textbox)) return false;
+        await injectGoogleFont(style.font as GoogleFont);
+        active.set({
+          fontFamily: style.font,
+          fontSize: style.size,
+          fill: style.color,
+          charSpacing: charSpacingFromPx(style.kerning, style.size),
+        });
+        c.requestRenderAll();
+        return true;
       },
     }),
     [],

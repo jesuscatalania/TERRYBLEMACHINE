@@ -1,7 +1,20 @@
 import { render } from "@testing-library/react";
+import type * as fabric from "fabric";
 import { createRef } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SvgEditor, type SvgEditorHandle } from "@/components/typography/SvgEditor";
+
+// `injectGoogleFont` awaits `document.fonts.load()` which isn't wired in
+// jsdom. The function already no-ops when `document.fonts` is undefined,
+// but mocking it explicitly keeps the text-method tests deterministic and
+// avoids flakiness from the (patched) jsdom fonts API.
+vi.mock("@/lib/googleFonts", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/googleFonts")>("@/lib/googleFonts");
+  return {
+    ...actual,
+    injectGoogleFont: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 // vitest-canvas-mock (wired in src/test/setup.ts) patches
 // HTMLCanvasElement.getContext() so fabric.Canvas can be instantiated under
@@ -41,5 +54,57 @@ describe("SvgEditor", () => {
     const c = handle.canvas();
     expect(c?.getWidth()).toBe(250);
     expect(c?.getHeight()).toBe(180);
+  });
+});
+
+describe("SvgEditor text methods", () => {
+  const BASE_STYLE = {
+    font: "Inter" as const,
+    color: "#F7F7F8",
+    size: 72,
+    kerning: 0,
+    tracking: 0,
+  };
+
+  it("addText appends a Textbox with the given style and selects it", async () => {
+    const ref = createRef<SvgEditorHandle>();
+    render(<SvgEditor ref={ref} />);
+    const tb = await ref.current?.addText("Acme", BASE_STYLE);
+    expect(tb).not.toBeNull();
+    expect(tb?.fontFamily).toBe("Inter");
+    expect(tb?.fontSize).toBe(72);
+    expect(tb?.fill).toBe("#F7F7F8");
+    const c = ref.current?.canvas();
+    expect(c?.getActiveObject()).toBe(tb);
+  });
+
+  it("updateText returns false when active object is not a Textbox", async () => {
+    const ref = createRef<SvgEditorHandle>();
+    render(<SvgEditor ref={ref} />);
+    const ok = await ref.current?.updateText(BASE_STYLE);
+    expect(ok).toBe(false);
+  });
+
+  it("updateText applies style patch when a Textbox is selected", async () => {
+    const ref = createRef<SvgEditorHandle>();
+    render(<SvgEditor ref={ref} />);
+    await ref.current?.addText("Acme", BASE_STYLE);
+    const ok = await ref.current?.updateText({
+      ...BASE_STYLE,
+      size: 120,
+      color: "#e85d2d",
+    });
+    expect(ok).toBe(true);
+    const active = ref.current?.canvas()?.getActiveObject() as fabric.Textbox;
+    expect(active.fontSize).toBe(120);
+    expect(active.fill).toBe("#e85d2d");
+  });
+
+  it("kerning in px converts to Fabric charSpacing (1/1000 em)", async () => {
+    const ref = createRef<SvgEditorHandle>();
+    render(<SvgEditor ref={ref} />);
+    // kerning=10px at fontSize=100 → 100 em units (10 * 1000 / 100)
+    const tb = await ref.current?.addText("A", { ...BASE_STYLE, size: 100, kerning: 10 });
+    expect(tb?.charSpacing).toBe(100);
   });
 });

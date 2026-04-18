@@ -202,6 +202,17 @@ export function TypographyPage() {
                 </Button>
                 <Button
                   variant="ghost"
+                  onClick={() => {
+                    // Fire-and-forget — addText returns a Promise so the
+                    // font can finish loading before the Textbox renders,
+                    // but the click handler doesn't need to block on it.
+                    void editorRef.current?.addText(prompt.trim() || "Your brand", textStyle);
+                  }}
+                >
+                  Add text
+                </Button>
+                <Button
+                  variant="ghost"
                   onClick={() => setExportOpen(true)}
                   disabled={!vectorized || !selectedVariant.local_path}
                 >
@@ -216,7 +227,16 @@ export function TypographyPage() {
               <div className="min-h-0 flex-1">
                 <SvgEditor ref={editorRef} />
               </div>
-              <TextLogoControls value={textStyle} onChange={setTextStyle} />
+              <TextLogoControls
+                value={textStyle}
+                onChange={(next) => {
+                  setTextStyle(next);
+                  // Fire-and-forget — updateText no-ops if nothing is
+                  // selected, so this is safe even before Add text is
+                  // clicked.
+                  void editorRef.current?.updateText(next);
+                }}
+              />
             </>
           ) : (
             <div className="mt-2 font-mono text-2xs text-neutral-dark-500 uppercase tracking-label">
