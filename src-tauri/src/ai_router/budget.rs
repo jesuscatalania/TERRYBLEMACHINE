@@ -100,6 +100,9 @@ pub fn cost_cents_for(model: Model) -> u64 {
         // Depth-Anything v2 large on Replicate: ≈ $0.008 per prediction,
         // rounded up to 1¢.
         Model::ReplicateDepthAnythingV2 => 1,
+        // TripoSR on Replicate: quick image-to-3D preview. Roughly $0.01–0.02
+        // per run depending on host; rounded up to 2¢ — cheaper than Meshy.
+        Model::ReplicateTripoSR => 2,
     }
 }
 

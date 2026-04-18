@@ -30,6 +30,11 @@ pub struct MeshImageInput {
     pub prompt: Option<String>,
     #[serde(default)]
     pub module: Option<String>,
+    /// When `true`, routes through `Complexity::Simple` so the AI router
+    /// picks `ReplicateTripoSR` (fast + cheap) as the primary and Meshy as
+    /// the fallback. Defaults to `false` → Meshy primary, TripoSR fallback.
+    #[serde(default)]
+    pub quick_preview: bool,
 }
 
 // ─── Result ────────────────────────────────────────────────────────────

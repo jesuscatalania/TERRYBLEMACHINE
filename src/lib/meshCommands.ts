@@ -13,11 +13,15 @@ export interface MeshTextInput {
 /**
  * Input for the `generate_mesh_from_image` Tauri command. Keys are snake_case
  * to match the Rust `MeshImageInput` serde definition.
+ *
+ * `quick_preview` opts into the TripoSR tier (faster + cheaper, lower
+ * fidelity). When omitted or `false`, the backend stays on Meshy.
  */
 export interface MeshImageInput {
   image_url: string;
   prompt?: string;
   module?: string;
+  quick_preview?: boolean;
 }
 
 /**

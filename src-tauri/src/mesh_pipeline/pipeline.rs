@@ -142,11 +142,18 @@ impl MeshPipeline for RouterMeshPipeline {
                 "mesh: hosted image URL required — data-URLs unsupported".into(),
             ));
         }
+        // `quick_preview` opts into the TripoSR routing tier (cheaper + faster
+        // but lower fidelity). Without it we stay Meshy-primary.
+        let complexity = if input.quick_preview {
+            Complexity::Simple
+        } else {
+            Complexity::Medium
+        };
         let req = AiRequest {
             id: uuid::Uuid::new_v4().to_string(),
             task: TaskKind::Image3D,
             priority: Priority::Normal,
-            complexity: Complexity::Medium,
+            complexity,
             prompt: input.prompt.unwrap_or_default(),
             payload: json!({ "image_url": input.image_url }),
         };
@@ -206,6 +213,7 @@ mod tests {
                 image_url: "data:image/png;base64,iVBORw0KGgo=".into(),
                 prompt: None,
                 module: None,
+                quick_preview: false,
             })
             .await
             .expect_err("data-URL must be rejected before routing");

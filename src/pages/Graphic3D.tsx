@@ -8,7 +8,7 @@ import { ThreeCanvas } from "@/components/graphic3d/ThreeCanvas";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { type DepthResult, generateDepth } from "@/lib/depthCommands";
-import { generateMeshFromText, type MeshResult } from "@/lib/meshCommands";
+import { generateMeshFromImage, generateMeshFromText, type MeshResult } from "@/lib/meshCommands";
 import { useUiStore } from "@/stores/uiStore";
 
 export function Graphic3DPage() {
@@ -24,6 +24,8 @@ export function Graphic3DPage() {
   const [meshPrompt, setMeshPrompt] = useState("");
   const [meshResult, setMeshResult] = useState<MeshResult | null>(null);
   const [meshBusy, setMeshBusy] = useState(false);
+  const [imageMeshBusy, setImageMeshBusy] = useState(false);
+  const [quickPreview, setQuickPreview] = useState(false);
   const notify = useUiStore((s) => s.notify);
 
   async function generateDepthForImage() {
@@ -64,6 +66,33 @@ export function Graphic3DPage() {
     }
   }
 
+  async function generate3DFromImage() {
+    const trimmed = imageUrl.trim();
+    if (!trimmed) return;
+    setImageMeshBusy(true);
+    try {
+      const result = await generateMeshFromImage({
+        image_url: trimmed,
+        module: "graphic3d",
+        quick_preview: quickPreview,
+      });
+      setMeshResult(result);
+      notify({
+        kind: "success",
+        message: quickPreview ? "Quick mesh ready" : "Mesh ready",
+        detail: result.model,
+      });
+    } catch (err) {
+      notify({
+        kind: "error",
+        message: "Image-to-3D failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setImageMeshBusy(false);
+    }
+  }
+
   return (
     <div className="grid h-full grid-rows-[auto_1fr]">
       <div className="flex flex-col gap-3 border-neutral-dark-700 border-b p-6">
@@ -96,6 +125,29 @@ export function Graphic3DPage() {
         {depthBusy ? (
           <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
             Requesting depth map…
+          </span>
+        ) : null}
+        <div className="flex items-end gap-2">
+          <Button
+            variant="secondary"
+            onClick={generate3DFromImage}
+            disabled={!imageUrl.trim() || imageMeshBusy}
+          >
+            {imageMeshBusy ? "Generating…" : "Generate 3D from image"}
+          </Button>
+          <label className="flex items-center gap-2 text-2xs text-neutral-dark-300">
+            <input
+              type="checkbox"
+              checked={quickPreview}
+              onChange={(e) => setQuickPreview(e.target.checked)}
+              className="accent-accent-500"
+            />
+            Quick preview (TripoSR)
+          </label>
+        </div>
+        {imageMeshBusy ? (
+          <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
+            Requesting image-to-3D…
           </span>
         ) : null}
         <div className="flex items-end gap-2">

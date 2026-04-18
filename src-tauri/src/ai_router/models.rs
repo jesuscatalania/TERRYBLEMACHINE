@@ -50,6 +50,10 @@ pub enum Model {
     ReplicateFluxDev,
     /// depth-anything/depth-anything-v2-large on Replicate.
     ReplicateDepthAnythingV2,
+    /// TripoSR on Replicate — fast image-to-3D ("quick preview" tier).
+    /// Simpler/cheaper than Meshy; routed by
+    /// `(Image3D, Complexity::Simple)`.
+    ReplicateTripoSR,
 }
 
 impl Model {
@@ -66,7 +70,9 @@ impl Model {
             Self::FalFluxPro | Self::FalSdxl | Self::FalRealEsrgan | Self::FalFluxFill => {
                 Provider::Fal
             }
-            Self::ReplicateFluxDev | Self::ReplicateDepthAnythingV2 => Provider::Replicate,
+            Self::ReplicateFluxDev | Self::ReplicateDepthAnythingV2 | Self::ReplicateTripoSR => {
+                Provider::Replicate
+            }
         }
     }
 }

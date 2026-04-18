@@ -97,6 +97,7 @@ mod tests {
                 image_url: "data:image/png;base64,xyz".into(),
                 prompt: None,
                 module: None,
+                quick_preview: false,
             })
             .await
             .unwrap_err();

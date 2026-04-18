@@ -43,6 +43,14 @@ const FLUX_DEV_VERSION: &str = "f2ab8a5569070ef6f6b2f0ede5a3f1a7fbfe0a5e1f6fb1bd
 /// hash — more stable across upgrades.
 const DEPTH_ANYTHING_V2_VERSION: &str = "2aa0d0d2d4e8a6f5e82a83a69e8fafb2afaec6a7";
 
+/// Replicate model version for TripoSR (camenduru/tripo-sr or similar host).
+///
+/// TODO(phase-5): Verify this hash at
+/// <https://replicate.com/camenduru/tripo-sr/api> and update if Replicate
+/// has released a more stable version or slug-based endpoint. Same caveat
+/// as [`DEPTH_ANYTHING_V2_VERSION`].
+const TRIPO_SR_VERSION: &str = "e8f6c45206993f297372f5436b90350817bd9b4a0d52d2a76df50c1c8afa2b3c";
+
 pub struct ReplicateClient {
     http: Client,
     base_url: String,
@@ -91,6 +99,7 @@ impl ReplicateClient {
         match model {
             Model::ReplicateFluxDev => Some(FLUX_DEV_VERSION),
             Model::ReplicateDepthAnythingV2 => Some(DEPTH_ANYTHING_V2_VERSION),
+            Model::ReplicateTripoSR => Some(TRIPO_SR_VERSION),
             _ => None,
         }
     }
@@ -110,6 +119,20 @@ impl ReplicateClient {
                             "depth-anything: image_url required in payload".into(),
                         )
                     })?;
+                Ok(json!({ "image": image_url }))
+            }
+            Model::ReplicateTripoSR => {
+                let image_url = request
+                    .payload
+                    .get("image_url")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        ProviderError::Permanent("triposr: image_url required in payload".into())
+                    })?;
+                // TripoSR on Replicate accepts an `image` input (path or URL).
+                // Field name matches the depth model for consistency; this
+                // may need a tweak once the version hash is verified against
+                // the live API.
                 Ok(json!({ "image": image_url }))
             }
             _ => Err(ProviderError::Permanent(format!(
@@ -157,12 +180,28 @@ impl ReplicateClient {
         }
 
         let parsed: PredictionResponse = resp.json().await.map_err(map_reqwest_error)?;
-        let output = json!({
+        let mut output = json!({
             "id": parsed.id,
             "status": parsed.status,
             "urls": parsed.urls,
             "output": parsed.output,
         });
+
+        // TripoSR returns a single GLB URL under `output`. The mesh pipeline
+        // extracts meshes via `output.glb_url`, so surface the URL under
+        // that key too for a frictionless hand-off.
+        if matches!(model, Model::ReplicateTripoSR) {
+            if let Some(url) = parsed
+                .output
+                .as_ref()
+                .and_then(|v| v.as_str())
+                .map(str::to_owned)
+            {
+                if let Some(obj) = output.as_object_mut() {
+                    obj.insert("glb_url".into(), Value::String(url));
+                }
+            }
+        }
 
         Ok(AiResponse {
             request_id: request.id.clone(),
@@ -408,6 +447,91 @@ mod tests {
                 .unwrap_or_default(),
             "https://fake.replicate/depth.png"
         );
+    }
+
+    #[tokio::test]
+    async fn triposr_posts_with_version_and_image() {
+        use wiremock::matchers::body_partial_json;
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/predictions"))
+            .and(header("authorization", "Token r8-test"))
+            .and(header("Prefer", "wait"))
+            .and(body_partial_json(json!({
+                "version": TRIPO_SR_VERSION,
+                "input": { "image": "https://src/a.png" },
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "pred-triposr-1",
+                "status": "succeeded",
+                "urls": {
+                    "get": "https://api.replicate.com/v1/predictions/pred-triposr-1",
+                    "cancel": "https://api.replicate.com/v1/predictions/pred-triposr-1/cancel",
+                },
+                "output": "https://fake.replicate/model.glb",
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = ReplicateClient::for_test(key_store_with_key(), server.uri());
+        let req = AiRequest {
+            id: "triposr-r1".into(),
+            task: TaskKind::Image3D,
+            priority: Priority::Normal,
+            complexity: Complexity::Simple,
+            prompt: String::new(),
+            payload: json!({ "image_url": "https://src/a.png" }),
+        };
+        let resp = client
+            .execute(Model::ReplicateTripoSR, &req)
+            .await
+            .expect("triposr prediction succeeds");
+
+        assert_eq!(resp.model, Model::ReplicateTripoSR);
+        // The mesh pipeline reads `output.glb_url` — make sure we surface it.
+        assert_eq!(
+            resp.output
+                .get("glb_url")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default(),
+            "https://fake.replicate/model.glb"
+        );
+        // And the raw `output` passthrough is still there for parity.
+        assert_eq!(
+            resp.output
+                .get("output")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default(),
+            "https://fake.replicate/model.glb"
+        );
+    }
+
+    #[tokio::test]
+    async fn triposr_requires_image_url() {
+        let server = MockServer::start().await;
+        let client = ReplicateClient::for_test(key_store_with_key(), server.uri());
+        let req = AiRequest {
+            id: "triposr-bad".into(),
+            task: TaskKind::Image3D,
+            priority: Priority::Normal,
+            complexity: Complexity::Simple,
+            prompt: String::new(),
+            payload: json!({}),
+        };
+        let err = client
+            .execute(Model::ReplicateTripoSR, &req)
+            .await
+            .expect_err("missing image_url must be a Permanent error");
+        assert!(matches!(err, ProviderError::Permanent(_)));
+    }
+
+    #[tokio::test]
+    async fn supports_includes_triposr() {
+        let client =
+            ReplicateClient::for_test(key_store_with_key(), "http://localhost".to_string());
+        assert!(client.supports(Model::ReplicateTripoSR));
     }
 
     #[tokio::test]

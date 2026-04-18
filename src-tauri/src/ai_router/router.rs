@@ -81,9 +81,15 @@ impl RoutingStrategy for DefaultRoutingStrategy {
             }
             (VideoMontage, _) => RouteDecision::new(ShotstackMontage),
 
-            // 3D — Meshy is the only Pro-grade option; no fallback yet.
+            // 3D — Meshy is the Pro-grade default. TripoSR (on Replicate)
+            // is the quick-preview tier: cheaper + faster but lower-fidelity.
+            // Complexity::Simple opts into TripoSR; Medium/Complex stays
+            // Meshy-primary with TripoSR as the fallback.
             (Text3D, _) => RouteDecision::new(MeshyText3D),
-            (Image3D, _) => RouteDecision::new(MeshyImage3D),
+            (Image3D, Complexity::Simple) => {
+                RouteDecision::with_fallbacks(ReplicateTripoSR, vec![MeshyImage3D])
+            }
+            (Image3D, _) => RouteDecision::with_fallbacks(MeshyImage3D, vec![ReplicateTripoSR]),
 
             // Vision analysis — Claude Sonnet leads; Haiku is the cheaper
             // fallback for simple reference-image extraction.
@@ -242,6 +248,27 @@ mod tests {
     fn image_3d_uses_meshy_image_endpoint() {
         let d = DefaultRoutingStrategy.select(&req(TaskKind::Image3D, Complexity::Medium));
         assert_eq!(d.primary, Model::MeshyImage3D);
+    }
+
+    #[test]
+    fn image_3d_simple_routes_to_triposr_first() {
+        let d = DefaultRoutingStrategy.select(&req(TaskKind::Image3D, Complexity::Simple));
+        assert_eq!(d.primary, Model::ReplicateTripoSR);
+        assert_eq!(d.fallbacks, vec![Model::MeshyImage3D]);
+    }
+
+    #[test]
+    fn image_3d_medium_routes_to_meshy_with_triposr_fallback() {
+        let d = DefaultRoutingStrategy.select(&req(TaskKind::Image3D, Complexity::Medium));
+        assert_eq!(d.primary, Model::MeshyImage3D);
+        assert!(d.fallbacks.contains(&Model::ReplicateTripoSR));
+    }
+
+    #[test]
+    fn image_3d_complex_routes_to_meshy_with_triposr_fallback() {
+        let d = DefaultRoutingStrategy.select(&req(TaskKind::Image3D, Complexity::Complex));
+        assert_eq!(d.primary, Model::MeshyImage3D);
+        assert!(d.fallbacks.contains(&Model::ReplicateTripoSR));
     }
 
     #[test]
