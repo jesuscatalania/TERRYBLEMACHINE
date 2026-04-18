@@ -10,11 +10,11 @@ import { useAppStore } from "@/stores/appStore";
 // NOTE: vi.mock is hoisted above imports, so stubs must be imported *inside*
 // the factory — see src/test/r3f-mock-bodies.ts.
 vi.mock("@react-three/fiber", async () => {
-  const [actual, { FiberCanvasStub }] = await Promise.all([
+  const [actual, { FiberCanvasStub, useThreeStub }] = await Promise.all([
     vi.importActual<typeof import("@react-three/fiber")>("@react-three/fiber"),
     import("@/test/r3f-mock-bodies"),
   ]);
-  return { ...actual, Canvas: FiberCanvasStub };
+  return { ...actual, Canvas: FiberCanvasStub, useThree: useThreeStub };
 });
 
 vi.mock("@react-three/drei", async () => {

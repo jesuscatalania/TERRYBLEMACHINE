@@ -1,10 +1,17 @@
-import { Suspense, useState } from "react";
+import { jsPDF } from "jspdf";
+import { Download } from "lucide-react";
+import { Suspense, useCallback, useRef, useState } from "react";
+import type { WebGLRenderer } from "three";
 import { CameraControls, type CameraMode } from "@/components/graphic3d/CameraControls";
 import { DepthPlane } from "@/components/graphic3d/DepthPlane";
 import { GltfModel } from "@/components/graphic3d/GltfModel";
 import type { IsoPresetName } from "@/components/graphic3d/IsoPreset";
 import type { LightingName } from "@/components/graphic3d/LightingPreset";
 import { ThreeCanvas } from "@/components/graphic3d/ThreeCanvas";
+import {
+  ThreeExportDialog,
+  type ThreeExportSettings,
+} from "@/components/graphic3d/ThreeExportDialog";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { type DepthResult, generateDepth } from "@/lib/depthCommands";
@@ -26,6 +33,8 @@ export function Graphic3DPage() {
   const [meshBusy, setMeshBusy] = useState(false);
   const [imageMeshBusy, setImageMeshBusy] = useState(false);
   const [quickPreview, setQuickPreview] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const glRef = useRef<WebGLRenderer | null>(null);
   const notify = useUiStore((s) => s.notify);
 
   async function generateDepthForImage() {
@@ -92,6 +101,24 @@ export function Graphic3DPage() {
       setImageMeshBusy(false);
     }
   }
+
+  const handleExport = useCallback(
+    (settings: ThreeExportSettings) => {
+      const dataUrl = captureFrame(glRef.current, settings);
+      if (!dataUrl) {
+        notify({
+          kind: "error",
+          message: "Canvas not ready",
+          detail: "Try rotating the scene first.",
+        });
+        return;
+      }
+      const ext = settings.format === "jpeg" ? "jpg" : settings.format;
+      triggerDownload(dataUrl, `${settings.filename}.${ext}`);
+      setExportOpen(false);
+    },
+    [notify],
+  );
 
   return (
     <div className="grid h-full grid-rows-[auto_1fr]">
@@ -232,6 +259,15 @@ export function Graphic3DPage() {
               SSAO
             </label>
           </div>
+          <Button
+            variant="primary"
+            size="sm"
+            className="mt-auto"
+            onClick={() => setExportOpen(true)}
+          >
+            <Download className="h-3 w-3" strokeWidth={1.5} />
+            Export
+          </Button>
         </div>
         <ThreeCanvas
           cameraMode={cameraMode}
@@ -239,6 +275,7 @@ export function Graphic3DPage() {
           bloom={bloom}
           ssao={ssao}
           isoPreset={isoPreset}
+          glRef={glRef}
         >
           {meshResult ? (
             <Suspense fallback={null}>
@@ -308,6 +345,63 @@ export function Graphic3DPage() {
           </div>
         </div>
       </div>
+      <ThreeExportDialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        onExport={handleExport}
+      />
     </div>
   );
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────
+
+/**
+ * Read the current WebGL frame out of the renderer's canvas and encode it in
+ * the requested format. Relies on `preserveDrawingBuffer: true` being set on
+ * the Canvas so the last-rendered frame is still in the buffer when we call
+ * `toDataURL`. Returns an empty string if the ref is unset (Canvas not ready).
+ */
+function captureFrame(gl: WebGLRenderer | null, settings: ThreeExportSettings): string {
+  if (!gl) return "";
+  const canvas = gl.domElement;
+
+  if (settings.format === "pdf") {
+    const png = canvas.toDataURL("image/png");
+    const pdf = new jsPDF({
+      orientation: canvas.width >= canvas.height ? "landscape" : "portrait",
+      unit: "px",
+      format: [canvas.width, canvas.height],
+    });
+    pdf.addImage(png, "PNG", 0, 0, canvas.width, canvas.height);
+    return pdf.output("dataurlstring");
+  }
+
+  // PNG with transparency flows through toDataURL directly — the Canvas is
+  // configured with alpha:true so the buffer already has per-pixel alpha.
+  // For opaque PNG we composite onto black via an offscreen 2D canvas so the
+  // exported PNG matches what the user sees (dark background).
+  if (settings.format === "png" && !settings.transparent) {
+    const off = document.createElement("canvas");
+    off.width = canvas.width;
+    off.height = canvas.height;
+    const ctx = off.getContext("2d");
+    if (!ctx) return canvas.toDataURL("image/png");
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, off.width, off.height);
+    ctx.drawImage(canvas, 0, 0);
+    return off.toDataURL("image/png");
+  }
+
+  const mime = `image/${settings.format}` as const;
+  return canvas.toDataURL(mime, settings.quality);
+}
+
+function triggerDownload(dataUrl: string, filename: string) {
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }

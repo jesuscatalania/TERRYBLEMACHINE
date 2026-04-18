@@ -11,6 +11,20 @@ export function FiberCanvasStub(props: { children?: ReactNode }) {
   return createElement("div", { "data-testid": "three-canvas" }, props.children);
 }
 
+/**
+ * Stand-in for R3F's `useThree` hook. The real hook reads the fiber store
+ * set up by <Canvas>; under the FiberCanvasStub there is no such store, so
+ * consumers (ExportHandle, etc.) get a shape-compatible fake with just the
+ * pieces we currently touch. Extend as new consumers appear.
+ */
+export function useThreeStub() {
+  const canvas = document.createElement("canvas");
+  const gl = {
+    domElement: canvas,
+  };
+  return { gl };
+}
+
 /** Stand-ins for @react-three/drei exports used across the app. */
 export const DreiStubs = {
   OrbitControls: () => null,
