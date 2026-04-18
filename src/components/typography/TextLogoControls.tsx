@@ -7,9 +7,14 @@ import { GOOGLE_FONTS, type GoogleFont, injectGoogleFont } from "@/lib/googleFon
  * px. Both are numeric ranges here — applying them to a Fabric `Textbox`
  * (letterSpacing / wordSpacing) is deferred polish; the page currently
  * just stores the state so future text-to-SVG work can consume it.
+ *
+ * `font` is narrowed to `GoogleFont` (FU #175) so only families that are
+ * actually in the curated Google Fonts list can flow into
+ * `injectGoogleFont` — keeps an invalid family from silently 404'ing the
+ * stylesheet at the SvgEditor boundary.
  */
 export interface TextStyle {
-  font: string;
+  font: GoogleFont;
   color: string;
   size: number;
   kerning: number;

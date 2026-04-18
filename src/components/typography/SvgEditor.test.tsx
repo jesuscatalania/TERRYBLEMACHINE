@@ -3,6 +3,7 @@ import type * as fabric from "fabric";
 import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { SvgEditor, type SvgEditorHandle } from "@/components/typography/SvgEditor";
+import { injectGoogleFont } from "@/lib/googleFonts";
 
 // `injectGoogleFont` awaits `document.fonts.load()` which isn't wired in
 // jsdom. The function already no-ops when `document.fonts` is undefined,
@@ -119,5 +120,18 @@ describe("SvgEditor text methods", () => {
     const ok = await ref.current?.updateText({ ...BASE_STYLE, size: 144 });
     expect(ok).toBe(true);
     expect(tb?.fontSize).toBe(144);
+  });
+
+  it("updateText skips redundant font injection when font hasn't changed", async () => {
+    const mock = vi.mocked(injectGoogleFont);
+    mock.mockClear();
+    const ref = createRef<SvgEditorHandle>();
+    render(<SvgEditor ref={ref} />);
+    await ref.current?.addText("Acme", BASE_STYLE); // call 1 — injects Inter
+    expect(mock).toHaveBeenCalledTimes(1);
+    await ref.current?.updateText({ ...BASE_STYLE, size: 120 }); // same font
+    expect(mock).toHaveBeenCalledTimes(1); // not called again
+    await ref.current?.updateText({ ...BASE_STYLE, font: "Roboto" }); // different font
+    expect(mock).toHaveBeenCalledTimes(2);
   });
 });

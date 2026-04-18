@@ -3,6 +3,10 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import type { TextStyle } from "@/components/typography/TextLogoControls";
 import { type GoogleFont, injectGoogleFont } from "@/lib/googleFonts";
 
+// `TextStyle.font` is already narrowed to `GoogleFont` (see
+// TextLogoControls.tsx) so the casts that used to live on
+// `injectGoogleFont` call sites are no longer needed.
+
 /**
  * Convert a kerning value in px (as used by TextLogoControls) to Fabric's
  * charSpacing unit (1/1000 of an em). Fabric docs:
@@ -71,6 +75,13 @@ export const SvgEditor = forwardRef<SvgEditorHandle, SvgEditorProps>(function Sv
   // the kerning/size sliders after a vectorize silently no-ops until the
   // user re-clicks the textbox — a surprising UX cliff.
   const lastTextRef = useRef<fabric.Textbox | null>(null);
+  // Memoize the last-seen font family so we skip `injectGoogleFont` on
+  // slider ticks where only size/kerning/color changed (FU #174). The
+  // slider fires onChange per sub-pixel move; re-injecting Inter every
+  // tick churns microtasks for zero benefit. Invalidated on canvas
+  // dispose + loadSvg's clear() so remounts / foreign SVGs re-inject on
+  // first use.
+  const lastFontRef = useRef<GoogleFont | null>(null);
 
   useEffect(() => {
     if (!canvasElRef.current) return;
@@ -85,6 +96,9 @@ export const SvgEditor = forwardRef<SvgEditorHandle, SvgEditorProps>(function Sv
     return () => {
       c.dispose();
       canvasRef.current = null;
+      // A remounted canvas has no stylesheet state to rely on; force the
+      // next addText/updateText to re-inject.
+      lastFontRef.current = null;
     };
   }, []);
 
@@ -99,6 +113,10 @@ export const SvgEditor = forwardRef<SvgEditorHandle, SvgEditorProps>(function Sv
         // `c.clear()` removed any previous Textbox — forget the ref so
         // `updateText`'s fallback doesn't patch a detached object.
         lastTextRef.current = null;
+        // The loaded SVG may carry its own <style>/@font-face markup;
+        // invalidate the font memo so the next addText/updateText
+        // re-injects even if the family name happens to match.
+        lastFontRef.current = null;
         c.setDimensions({ width, height });
         c.backgroundColor = "#F7F7F8";
         const result = await fabric.loadSVGFromString(svg);
@@ -131,8 +149,12 @@ export const SvgEditor = forwardRef<SvgEditorHandle, SvgEditorProps>(function Sv
         // Ensure the chosen font is actually loaded before the Textbox
         // measures its metrics — otherwise first render uses the system
         // fallback and we'd need a reflow. Mirrors TextLogoControls's
-        // pattern.
-        await injectGoogleFont(style.font as GoogleFont);
+        // pattern. Skip the re-inject if the family hasn't changed since
+        // the last call (FU #174) — avoids churn on slider ticks.
+        if (lastFontRef.current !== style.font) {
+          await injectGoogleFont(style.font);
+          lastFontRef.current = style.font;
+        }
         const tb = new fabric.Textbox(text, {
           originX: "center",
           originY: "center",
@@ -172,7 +194,12 @@ export const SvgEditor = forwardRef<SvgEditorHandle, SvgEditorProps>(function Sv
           lastTextRef.current = null;
           return false;
         }
-        await injectGoogleFont(style.font as GoogleFont);
+        // Same memo as addText — skip the stylesheet hit when only
+        // size/kerning/color changed (FU #174).
+        if (lastFontRef.current !== style.font) {
+          await injectGoogleFont(style.font);
+          lastFontRef.current = style.font;
+        }
         target.set({
           fontFamily: style.font,
           fontSize: style.size,
