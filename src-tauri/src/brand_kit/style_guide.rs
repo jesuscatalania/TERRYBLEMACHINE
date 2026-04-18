@@ -19,9 +19,10 @@
 
 use super::types::BrandKitInput;
 
-/// Escape a string for use inside HTML element content.
-/// Covers `&`, `<`, `>` and `"` — enough to prevent tag-break and
-/// attribute-break attacks in element-text positions.
+/// Escape a string for use inside HTML **element content** (e.g. text
+/// inside `<h1>`, `<title>`, `<p>`). Covers `&`, `<`, `>`, and `"` — NOT
+/// `'`. Never use this for attribute values — use [`escape_attr`] instead.
+/// A single-quoted attribute context would need the apostrophe escaped.
 fn escape_text(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -29,10 +30,9 @@ fn escape_text(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// Escape a string for use inside an HTML attribute value.
-/// Adds `'` on top of [`escape_text`]'s set so single-quoted attributes
-/// stay safe too.
-#[allow(dead_code)]
+/// Escape a string for use inside an HTML **attribute value** (double- or
+/// single-quoted). Adds `'` on top of [`escape_text`]'s set so single-quoted
+/// attributes stay safe too.
 fn escape_attr(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -57,11 +57,13 @@ fn escape_css_string(s: &str) -> String {
 
 pub fn build_style_guide(input: &BrandKitInput) -> String {
     let name_html = escape_text(&input.brand_name);
-    // Primary/accent are already validated as hex by `types::validate_input`,
-    // but we still run them through `escape_text` for defense in depth when
-    // they land inside `style="..."` attribute values and `<div class="meta">`
-    // element content — cheap insurance against a future caller bypassing the
-    // validator.
+    // Primary/accent are already validated as hex by `types::validate_input`.
+    // We still run the attribute-context versions through `escape_attr` (they
+    // land inside `style="background: {color};"`) and the element-text copies
+    // through `escape_text` (inside `<div class="meta">`) — cheap defense in
+    // depth against a future caller that bypasses the validator.
+    let primary_attr = escape_attr(&input.primary_color);
+    let accent_attr = escape_attr(&input.accent_color);
     let primary_html = escape_text(&input.primary_color);
     let accent_html = escape_text(&input.accent_color);
     let font_css = escape_css_string(&input.font);
@@ -105,11 +107,11 @@ pub fn build_style_guide(input: &BrandKitInput) -> String {
   <h2>Palette</h2>
   <div class="palette">
     <div class="swatch">
-      <div class="chip" style="background: {primary_html};"></div>
+      <div class="chip" style="background: {primary_attr};"></div>
       <div class="meta">Primary<br>{primary_html}</div>
     </div>
     <div class="swatch">
-      <div class="chip" style="background: {accent_html};"></div>
+      <div class="chip" style="background: {accent_attr};"></div>
       <div class="meta">Accent<br>{accent_html}</div>
     </div>
   </div>
