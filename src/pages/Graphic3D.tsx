@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { CameraControls, type CameraMode } from "@/components/graphic3d/CameraControls";
+import type { LightingName } from "@/components/graphic3d/LightingPreset";
 import { ThreeCanvas } from "@/components/graphic3d/ThreeCanvas";
 
 export function Graphic3DPage() {
   const [cameraMode, setCameraMode] = useState<CameraMode>("perspective");
+  const [lighting, setLighting] = useState<LightingName>("studio");
 
   return (
     <div className="grid h-full grid-rows-[auto_1fr]">
@@ -20,8 +22,22 @@ export function Graphic3DPage() {
             Tools
           </span>
           <CameraControls mode={cameraMode} onModeChange={setCameraMode} />
+          <div className="flex flex-col gap-1">
+            <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
+              Lighting
+            </span>
+            <select
+              value={lighting}
+              onChange={(e) => setLighting(e.target.value as LightingName)}
+              className="rounded-xs border border-neutral-dark-700 bg-neutral-dark-900 px-2 py-1 text-xs text-neutral-dark-100"
+            >
+              <option value="studio">Studio</option>
+              <option value="outdoor">Outdoor</option>
+              <option value="dramatic">Dramatic</option>
+            </select>
+          </div>
         </div>
-        <ThreeCanvas cameraMode={cameraMode}>
+        <ThreeCanvas cameraMode={cameraMode} lighting={lighting}>
           <mesh>
             <boxGeometry args={[1, 1, 1]} />
             <meshStandardMaterial color="#e85d2d" />

@@ -2,14 +2,21 @@ import { OrbitControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import type { ReactNode } from "react";
 import type { CameraMode } from "./CameraControls";
+import { type LightingName, LightingPreset } from "./LightingPreset";
 
 export interface ThreeCanvasProps {
   children?: ReactNode;
   className?: string;
   cameraMode?: CameraMode;
+  lighting?: LightingName;
 }
 
-export function ThreeCanvas({ children, className, cameraMode = "perspective" }: ThreeCanvasProps) {
+export function ThreeCanvas({
+  children,
+  className,
+  cameraMode = "perspective",
+  lighting = "studio",
+}: ThreeCanvasProps) {
   const canvasProps =
     cameraMode === "orthographic"
       ? {
@@ -30,9 +37,8 @@ export function ThreeCanvas({ children, className, cameraMode = "perspective" }:
 
   return (
     <div className={`relative h-full w-full bg-neutral-dark-950 ${className ?? ""}`}>
-      <Canvas key={cameraMode} {...canvasProps} dpr={[1, 2]}>
-        <ambientLight intensity={0.5} />
-        <directionalLight position={[5, 5, 5]} intensity={1} />
+      <Canvas key={`${cameraMode}-${lighting}`} {...canvasProps} dpr={[1, 2]}>
+        <LightingPreset name={lighting} />
         <OrbitControls makeDefault />
         {children}
       </Canvas>
