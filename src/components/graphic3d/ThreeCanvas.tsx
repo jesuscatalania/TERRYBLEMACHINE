@@ -2,6 +2,7 @@ import { OrbitControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import type { ReactNode } from "react";
 import type { CameraMode } from "./CameraControls";
+import { cameraForIso, type IsoPresetName } from "./IsoPreset";
 import { type LightingName, LightingPreset } from "./LightingPreset";
 import { PostProcessing } from "./PostProcessing";
 
@@ -12,6 +13,7 @@ export interface ThreeCanvasProps {
   lighting?: LightingName;
   bloom?: boolean;
   ssao?: boolean;
+  isoPreset?: IsoPresetName;
 }
 
 export function ThreeCanvas({
@@ -21,13 +23,19 @@ export function ThreeCanvas({
   lighting = "studio",
   bloom,
   ssao,
+  isoPreset = "none",
 }: ThreeCanvasProps) {
+  const iso = cameraForIso(isoPreset);
+  const defaultPosition: [number, number, number] = [4, 3, 4];
+  const position = iso?.position ?? defaultPosition;
+  const fov = iso?.fov ?? 45;
+
   const canvasProps =
     cameraMode === "orthographic"
       ? {
           orthographic: true as const,
           camera: {
-            position: [4, 3, 4] as [number, number, number],
+            position,
             zoom: 100,
             near: 0.1,
             far: 1000,
@@ -35,14 +43,14 @@ export function ThreeCanvas({
         }
       : {
           camera: {
-            position: [4, 3, 4] as [number, number, number],
-            fov: 45,
+            position,
+            fov,
           },
         };
 
   return (
     <div className={`relative h-full w-full bg-neutral-dark-950 ${className ?? ""}`}>
-      <Canvas key={`${cameraMode}-${lighting}`} {...canvasProps} dpr={[1, 2]}>
+      <Canvas key={`${cameraMode}-${lighting}-${isoPreset}`} {...canvasProps} dpr={[1, 2]}>
         <LightingPreset name={lighting} />
         <OrbitControls makeDefault />
         {children}

@@ -2,6 +2,7 @@ import { Suspense, useState } from "react";
 import { CameraControls, type CameraMode } from "@/components/graphic3d/CameraControls";
 import { DepthPlane } from "@/components/graphic3d/DepthPlane";
 import { GltfModel } from "@/components/graphic3d/GltfModel";
+import type { IsoPresetName } from "@/components/graphic3d/IsoPreset";
 import type { LightingName } from "@/components/graphic3d/LightingPreset";
 import { ThreeCanvas } from "@/components/graphic3d/ThreeCanvas";
 import { Button } from "@/components/ui/Button";
@@ -13,6 +14,7 @@ import { useUiStore } from "@/stores/uiStore";
 export function Graphic3DPage() {
   const [cameraMode, setCameraMode] = useState<CameraMode>("perspective");
   const [lighting, setLighting] = useState<LightingName>("studio");
+  const [isoPreset, setIsoPreset] = useState<IsoPresetName>("none");
   const [bloom, setBloom] = useState(false);
   const [ssao, setSsao] = useState(false);
   const [imageUrl, setImageUrl] = useState("");
@@ -140,6 +142,21 @@ export function Graphic3DPage() {
               <option value="dramatic">Dramatic</option>
             </select>
           </div>
+          <div className="flex flex-col gap-1">
+            <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
+              Preset
+            </span>
+            <select
+              value={isoPreset}
+              onChange={(e) => setIsoPreset(e.target.value as IsoPresetName)}
+              className="rounded-xs border border-neutral-dark-700 bg-neutral-dark-900 px-2 py-1 text-xs text-neutral-dark-100"
+            >
+              <option value="none">None</option>
+              <option value="room">Room</option>
+              <option value="city">City Block</option>
+              <option value="product">Product Shot</option>
+            </select>
+          </div>
           <div className="mt-2 flex flex-col gap-1">
             <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
               Post-FX
@@ -164,7 +181,13 @@ export function Graphic3DPage() {
             </label>
           </div>
         </div>
-        <ThreeCanvas cameraMode={cameraMode} lighting={lighting} bloom={bloom} ssao={ssao}>
+        <ThreeCanvas
+          cameraMode={cameraMode}
+          lighting={lighting}
+          bloom={bloom}
+          ssao={ssao}
+          isoPreset={isoPreset}
+        >
           {meshResult ? (
             <Suspense fallback={null}>
               <GltfModel localPath={meshResult.local_path} remoteUrl={meshResult.glb_url} />
