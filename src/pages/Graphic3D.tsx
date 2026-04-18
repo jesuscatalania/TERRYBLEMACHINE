@@ -3,7 +3,9 @@ import { Download } from "lucide-react";
 import { Suspense, useCallback, useRef, useState } from "react";
 import type { WebGLRenderer } from "three";
 import { CameraControls, type CameraMode } from "@/components/graphic3d/CameraControls";
+import { captureAnimatedGif } from "@/components/graphic3d/captureAnimatedGif";
 import { DepthPlane } from "@/components/graphic3d/DepthPlane";
+import type { ExportRefs } from "@/components/graphic3d/ExportHandle";
 import { GltfModel } from "@/components/graphic3d/GltfModel";
 import type { IsoPresetName } from "@/components/graphic3d/IsoPreset";
 import type { LightingName } from "@/components/graphic3d/LightingPreset";
@@ -40,7 +42,7 @@ export function Graphic3DPage() {
   const [imageMeshBusy, setImageMeshBusy] = useState(false);
   const [quickPreview, setQuickPreview] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
-  const glRef = useRef<WebGLRenderer | null>(null);
+  const glRef = useRef<ExportRefs | null>(null);
   const notify = useUiStore((s) => s.notify);
   const currentProject = useProjectStore((s) => s.currentProject);
 
@@ -133,8 +135,40 @@ export function Graphic3DPage() {
   }
 
   const handleExport = useCallback(
-    (settings: ThreeExportSettings) => {
-      const dataUrl = captureFrame(glRef.current, settings);
+    async (settings: ThreeExportSettings) => {
+      const refs = glRef.current;
+      if (!refs?.gl) {
+        notify({
+          kind: "error",
+          message: "Canvas not ready",
+          detail: "Try rotating the scene first.",
+        });
+        return;
+      }
+
+      if (settings.format === "gif") {
+        if (!refs.scene || !refs.camera) {
+          notify({
+            kind: "error",
+            message: "Canvas not ready",
+            detail: "Scene/camera refs missing.",
+          });
+          return;
+        }
+        const url = await captureAnimatedGif(refs.gl, refs.scene, refs.camera, {
+          frames: settings.frames,
+          delayMs: settings.delayMs,
+        });
+        if (!url) {
+          notify({ kind: "error", message: "GIF export failed" });
+          return;
+        }
+        triggerDownload(url, `${settings.filename}.gif`);
+        setExportOpen(false);
+        return;
+      }
+
+      const dataUrl = captureFrame(refs.gl, settings);
       if (!dataUrl) {
         notify({
           kind: "error",
@@ -400,8 +434,7 @@ export function Graphic3DPage() {
  * the Canvas so the last-rendered frame is still in the buffer when we call
  * `toDataURL`. Returns an empty string if the ref is unset (Canvas not ready).
  */
-function captureFrame(gl: WebGLRenderer | null, settings: ThreeExportSettings): string {
-  if (!gl) return "";
+function captureFrame(gl: WebGLRenderer, settings: ThreeExportSettings): string {
   const canvas = gl.domElement;
 
   if (settings.format === "pdf") {

@@ -21,8 +21,20 @@ export function useThreeStub() {
   const canvas = document.createElement("canvas");
   const gl = {
     domElement: canvas,
+    render: () => {},
   };
-  return { gl };
+  const scene = {};
+  const camera = {
+    position: {
+      x: 4,
+      y: 3,
+      z: 4,
+      set: () => {},
+      clone: () => ({ x: 4, y: 3, z: 4 }),
+    },
+    lookAt: () => {},
+  };
+  return { gl, scene, camera };
 }
 
 /** Stand-ins for @react-three/drei exports used across the app. */

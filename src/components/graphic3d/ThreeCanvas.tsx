@@ -1,9 +1,8 @@
 import { OrbitControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import type { MutableRefObject, ReactNode } from "react";
-import type { WebGLRenderer } from "three";
 import type { CameraMode } from "./CameraControls";
-import { ExportHandle } from "./ExportHandle";
+import { ExportHandle, type ExportRefs } from "./ExportHandle";
 import { cameraForIso, type IsoPresetName } from "./IsoPreset";
 import { type LightingName, LightingPreset } from "./LightingPreset";
 import { PostProcessing } from "./PostProcessing";
@@ -17,12 +16,13 @@ export interface ThreeCanvasProps {
   ssao?: boolean;
   isoPreset?: IsoPresetName;
   /**
-   * Optional ref that will receive the active WebGLRenderer once the Canvas
-   * has mounted. Used by the parent page to capture the current frame for
-   * image export (PNG/JPEG/WebP/PDF). When provided, an <ExportHandle /> is
+   * Optional ref that will receive the active WebGLRenderer + Scene + Camera
+   * once the Canvas has mounted. Used by the parent page to capture the
+   * current frame for image export (PNG/JPEG/WebP/PDF) and to orbit the
+   * camera for animated GIF export. When provided, an <ExportHandle /> is
    * mounted inside the Canvas to wire the ref via useThree.
    */
-  glRef?: MutableRefObject<WebGLRenderer | null>;
+  glRef?: MutableRefObject<ExportRefs | null>;
 }
 
 export function ThreeCanvas({

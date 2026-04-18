@@ -4,7 +4,7 @@ import { Dropdown } from "@/components/ui/Dropdown";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 
-export type ThreeExportFormat = "png" | "jpeg" | "webp" | "pdf";
+export type ThreeExportFormat = "png" | "jpeg" | "webp" | "pdf" | "gif";
 
 export interface ThreeExportSettings {
   format: ThreeExportFormat;
@@ -14,6 +14,10 @@ export interface ThreeExportSettings {
   transparent: boolean;
   /** Custom filename (without extension). */
   filename: string;
+  /** GIF only: number of orbit frames (>=1). */
+  frames?: number;
+  /** GIF only: delay between frames in ms (>=10). */
+  delayMs?: number;
 }
 
 export interface ThreeExportDialogProps {
@@ -27,6 +31,7 @@ const FORMAT_OPTIONS = [
   { value: "jpeg", label: "JPEG", hint: "Compressed, no transparency" },
   { value: "webp", label: "WebP", hint: "Modern, compressed" },
   { value: "pdf", label: "PDF", hint: "Single-page document" },
+  { value: "gif", label: "GIF", hint: "360° animated orbit" },
 ];
 
 export function ThreeExportDialog({ open, onClose, onExport }: ThreeExportDialogProps) {
@@ -34,9 +39,12 @@ export function ThreeExportDialog({ open, onClose, onExport }: ThreeExportDialog
   const [quality, setQuality] = useState(92);
   const [transparent, setTransparent] = useState(false);
   const [filename, setFilename] = useState("terryble-3d");
+  const [frames, setFrames] = useState(30);
+  const [delayMs, setDelayMs] = useState(100);
 
   const isLossy = format === "jpeg" || format === "webp";
   const supportsTransparency = format === "png";
+  const isGif = format === "gif";
 
   function handleExport() {
     onExport({
@@ -44,6 +52,8 @@ export function ThreeExportDialog({ open, onClose, onExport }: ThreeExportDialog
       quality: quality / 100,
       transparent,
       filename: filename.trim() || "terryble-3d",
+      frames: isGif ? Math.max(1, frames) : undefined,
+      delayMs: isGif ? Math.max(10, delayMs) : undefined,
     });
   }
 
@@ -119,6 +129,25 @@ export function ThreeExportDialog({ open, onClose, onExport }: ThreeExportDialog
             />
             Transparent background
           </label>
+        ) : null}
+
+        {isGif ? (
+          <div className="flex gap-2">
+            <Input
+              type="number"
+              label="Frames"
+              id="three-export-gif-frames"
+              value={frames}
+              onValueChange={(v) => setFrames(Math.max(1, Number(v) || 1))}
+            />
+            <Input
+              type="number"
+              label="Delay (ms)"
+              id="three-export-gif-delay"
+              value={delayMs}
+              onValueChange={(v) => setDelayMs(Math.max(10, Number(v) || 100))}
+            />
+          </div>
         ) : null}
       </div>
     </Modal>
