@@ -1,5 +1,6 @@
 //! Tauri IPC commands for the mesh (3D) pipeline.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -58,4 +59,30 @@ pub async fn generate_mesh_from_image(
     state: State<'_, MeshPipelineState>,
 ) -> Result<MeshResult, MeshIpcError> {
     state.0.generate_from_image(input).await.map_err(Into::into)
+}
+
+/// Copy a cached GLB at `local_path` to the user-chosen `target_path`.
+///
+/// Pass-through of the mesh cache: mesh generation (T8–T12) stores the GLB at
+/// `~/Library/Caches/terryblemachine/meshes/<sha256>.glb`. "Export GLB" copies
+/// that file to wherever the user asked (typically
+/// `<project>/exports/<timestamp>-mesh.glb`), creating the parent directory
+/// tree as needed. Missing source → `InvalidInput`; any IO failure during
+/// mkdir/copy → `Cache`. Returns the absolute `target_path` on success so the
+/// frontend can surface it in the success toast.
+#[tauri::command]
+pub fn export_mesh(local_path: PathBuf, target_path: PathBuf) -> Result<PathBuf, MeshIpcError> {
+    if !local_path.exists() {
+        return Err(MeshIpcError::InvalidInput(format!(
+            "source mesh not in cache: {}",
+            local_path.display()
+        )));
+    }
+    if let Some(parent) = target_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| MeshIpcError::Cache(format!("mkdir target parent: {e}")))?;
+    }
+    std::fs::copy(&local_path, &target_path)
+        .map_err(|e| MeshIpcError::Cache(format!("copy failed: {e}")))?;
+    Ok(target_path)
 }

@@ -18,6 +18,7 @@ use terryblemachine_lib::ai_router::{
     AiClient, AiRequest, AiResponse, AiRouter, Complexity, DefaultRoutingStrategy, Model,
     PriorityQueue, Provider, ProviderError, ProviderUsage, RetryPolicy,
 };
+use terryblemachine_lib::mesh_pipeline::commands::{export_mesh, MeshIpcError};
 use terryblemachine_lib::mesh_pipeline::{
     MeshImageInput, MeshPipeline, MeshPipelineError, MeshTextInput, RouterMeshPipeline,
 };
@@ -324,4 +325,47 @@ async fn image_to_mesh_quick_preview_routes_via_simple_complexity() {
         meshy_capture.lock().unwrap().is_none(),
         "meshy must not be touched when TripoSR succeeds"
     );
+}
+
+// ─── export_mesh ────────────────────────────────────────────────────────
+//
+// `export_mesh` is a plain (non-async) `#[tauri::command]` that copies a
+// cached GLB to a user-chosen target. The tests below drive it directly —
+// no State, no AiRouter — because its job is purely filesystem-bound.
+
+#[test]
+fn export_mesh_copies_cached_glb_to_target() {
+    let tmp = TempDir::new().unwrap();
+    let src = tmp.path().join("cached.glb");
+    std::fs::write(&src, b"glTF\x02\x00\x00\x00test").unwrap();
+    let target = tmp.path().join("exports/out.glb");
+
+    let result = export_mesh(src.clone(), target.clone()).expect("export ok");
+    assert_eq!(result, target);
+    assert!(target.exists());
+    assert_eq!(std::fs::read(&target).unwrap(), b"glTF\x02\x00\x00\x00test");
+}
+
+#[test]
+fn export_mesh_creates_parent_dir() {
+    let tmp = TempDir::new().unwrap();
+    let src = tmp.path().join("cached.glb");
+    std::fs::write(&src, b"GLB").unwrap();
+    let target = tmp.path().join("nested/dir/chain/out.glb");
+
+    export_mesh(src, target.clone()).expect("export ok");
+    assert!(target.exists());
+}
+
+#[test]
+fn export_mesh_rejects_missing_source() {
+    let tmp = TempDir::new().unwrap();
+    let src = tmp.path().join("does-not-exist.glb");
+    let target = tmp.path().join("out.glb");
+
+    let err = export_mesh(src, target).expect_err("should fail");
+    match err {
+        MeshIpcError::InvalidInput(msg) => assert!(msg.contains("not in cache")),
+        other => panic!("wrong error variant: {other:?}"),
+    }
 }

@@ -15,7 +15,13 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { type DepthResult, generateDepth } from "@/lib/depthCommands";
-import { generateMeshFromImage, generateMeshFromText, type MeshResult } from "@/lib/meshCommands";
+import {
+  exportMesh,
+  generateMeshFromImage,
+  generateMeshFromText,
+  type MeshResult,
+} from "@/lib/meshCommands";
+import { useProjectStore } from "@/stores/projectStore";
 import { useUiStore } from "@/stores/uiStore";
 
 export function Graphic3DPage() {
@@ -36,6 +42,7 @@ export function Graphic3DPage() {
   const [exportOpen, setExportOpen] = useState(false);
   const glRef = useRef<WebGLRenderer | null>(null);
   const notify = useUiStore((s) => s.notify);
+  const currentProject = useProjectStore((s) => s.currentProject);
 
   async function generateDepthForImage() {
     const trimmed = imageUrl.trim();
@@ -99,6 +106,29 @@ export function Graphic3DPage() {
       });
     } finally {
       setImageMeshBusy(false);
+    }
+  }
+
+  async function exportGlb() {
+    if (!meshResult?.local_path) return;
+    if (!currentProject) {
+      notify({
+        kind: "warning",
+        message: "Open a project first to export",
+      });
+      return;
+    }
+    const filename = `${Date.now()}-mesh.glb`;
+    const targetPath = `${currentProject.path}/exports/${filename}`;
+    try {
+      const saved = await exportMesh(meshResult.local_path, targetPath);
+      notify({ kind: "success", message: "GLB exported", detail: saved });
+    } catch (err) {
+      notify({
+        kind: "error",
+        message: "GLB export failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -313,6 +343,14 @@ export function Graphic3DPage() {
                 >
                   {meshResult.local_path ? "cached locally" : "remote URL"}
                 </span>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={exportGlb}
+                  disabled={!meshResult.local_path}
+                >
+                  Export GLB
+                </Button>
               </div>
             ) : depthResult ? (
               <div className="flex flex-col gap-2 p-3">

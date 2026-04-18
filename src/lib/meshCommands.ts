@@ -51,3 +51,13 @@ export function generateMeshFromText(input: MeshTextInput): Promise<MeshResult> 
 export function generateMeshFromImage(input: MeshImageInput): Promise<MeshResult> {
   return invoke<MeshResult>("generate_mesh_from_image", { input });
 }
+
+/**
+ * Copy a cached GLB at `localPath` to `targetPath` (absolute paths on both
+ * sides). Tauri auto-converts the camelCase keys to the Rust command's
+ * snake_case parameters. Parent dirs are created on the Rust side; missing
+ * source surfaces as an `InvalidInput` error the caller can toast.
+ */
+export function exportMesh(localPath: string, targetPath: string): Promise<string> {
+  return invoke<string>("export_mesh", { localPath, targetPath });
+}

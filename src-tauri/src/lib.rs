@@ -170,6 +170,7 @@ pub fn run() {
             depth_pipeline::commands::generate_depth,
             mesh_pipeline::commands::generate_mesh_from_text,
             mesh_pipeline::commands::generate_mesh_from_image,
+            mesh_pipeline::commands::export_mesh,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
