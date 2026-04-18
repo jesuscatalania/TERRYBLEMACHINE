@@ -22,7 +22,7 @@ use thiserror::Error;
 ///   resizes it into every favicon/web/print size and derives the B&W and
 ///   inverted variants from it.
 /// - `brand_name`, `primary_color`, `accent_color`, `font` are forwarded
-///   to the style-guide generator (placeholder in T5, real in T6).
+///   to the style-guide generator.
 #[derive(Debug, Clone, Deserialize)]
 pub struct BrandKitInput {
     pub logo_svg: String,
