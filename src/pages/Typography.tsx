@@ -96,16 +96,28 @@ export function TypographyPage() {
   }
 
   async function handleExport(dialogInput: BrandKitDialogInput) {
-    // Button is gated on `selectedVariant?.local_path && vectorized`, but
-    // re-check here so a race (selection changing mid-submit) surfaces as
-    // a dialog error instead of a confusing backend reject.
+    // Pre-validation — these cannot happen in normal flow because the Export
+    // button is already disabled when either precondition is false. Surface
+    // via notify and bail out so the dialog closes cleanly; the dialog's
+    // role="alert" is reserved for actual backend rejections.
     if (!selectedVariant?.local_path) {
-      throw new Error("No source PNG — select a variant with a local copy first");
+      notify({
+        kind: "error",
+        message: "Export failed",
+        detail: "No source PNG — select a variant with a local copy first",
+      });
+      return;
     }
     const logoSvg = editorRef.current?.toSvgString() ?? "";
     if (!logoSvg) {
-      throw new Error("No SVG in editor — vectorize the variant first");
+      notify({
+        kind: "error",
+        message: "Export failed",
+        detail: "No SVG in editor — vectorize the variant first",
+      });
+      return;
     }
+    // Backend errors propagate to the dialog, which displays them inline.
     const input: BrandKitInput = {
       logo_svg: logoSvg,
       source_png_path: selectedVariant.local_path,
@@ -209,7 +221,6 @@ export function TypographyPage() {
         open={exportOpen}
         onClose={() => setExportOpen(false)}
         onSubmit={handleExport}
-        defaultBrandName={prompt.trim() || "Brand"}
         defaultDestination={currentProject ? `${currentProject.path}/exports` : ""}
       />
     </div>
