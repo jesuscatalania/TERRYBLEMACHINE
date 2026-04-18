@@ -1,12 +1,15 @@
 import { Sparkles } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { BrandKitDialog, type BrandKitDialogInput } from "@/components/typography/BrandKitDialog";
 import { LogoGallery } from "@/components/typography/LogoGallery";
 import { SvgEditor, type SvgEditorHandle } from "@/components/typography/SvgEditor";
 import { TextLogoControls, type TextStyle } from "@/components/typography/TextLogoControls";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { type BrandKitInput, exportBrandKit } from "@/lib/brandKitCommands";
 import { generateLogoVariants, type LogoStyle, type LogoVariant } from "@/lib/logoCommands";
 import { vectorizeImage } from "@/lib/vectorizerCommands";
+import { useProjectStore } from "@/stores/projectStore";
 import { useUiStore } from "@/stores/uiStore";
 
 const DEFAULT_TEXT_STYLE: TextStyle = {
@@ -26,13 +29,26 @@ export function TypographyPage() {
   const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
   const [textStyle, setTextStyle] = useState<TextStyle>(DEFAULT_TEXT_STYLE);
   const [vectorizing, setVectorizing] = useState(false);
+  const [vectorized, setVectorized] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const editorRef = useRef<SvgEditorHandle>(null);
   const notify = useUiStore((s) => s.notify);
+  const currentProject = useProjectStore((s) => s.currentProject);
 
   const selectedVariant = selectedUrl
     ? (variants.find((v) => v.url === selectedUrl) ?? null)
     : null;
   const canVectorize = Boolean(selectedVariant?.local_path) && !vectorizing;
+
+  // Reset vectorized flag whenever the user picks a different variant — the
+  // Fabric canvas still holds the previous logo but it no longer matches
+  // the selected source PNG, so gating Export on a fresh vectorize avoids
+  // shipping a mismatched kit. Using useEffect over inlining into onSelect
+  // means we can't forget to reset from a new code path later.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-runs when selectedUrl changes to reset vectorized state
+  useEffect(() => {
+    setVectorized(false);
+  }, [selectedUrl]);
 
   async function handleGenerate() {
     if (!prompt.trim()) return;
@@ -66,6 +82,7 @@ export function TypographyPage() {
         image_path: selectedVariant.local_path,
       });
       await editorRef.current?.loadSvg(result.svg, result.width, result.height);
+      setVectorized(true);
       notify({ kind: "success", message: "Vectorized logo" });
     } catch (err) {
       notify({
@@ -76,6 +93,29 @@ export function TypographyPage() {
     } finally {
       setVectorizing(false);
     }
+  }
+
+  async function handleExport(dialogInput: BrandKitDialogInput) {
+    // Button is gated on `selectedVariant?.local_path && vectorized`, but
+    // re-check here so a race (selection changing mid-submit) surfaces as
+    // a dialog error instead of a confusing backend reject.
+    if (!selectedVariant?.local_path) {
+      throw new Error("No source PNG — select a variant with a local copy first");
+    }
+    const logoSvg = editorRef.current?.toSvgString() ?? "";
+    if (!logoSvg) {
+      throw new Error("No SVG in editor — vectorize the variant first");
+    }
+    const input: BrandKitInput = {
+      logo_svg: logoSvg,
+      source_png_path: selectedVariant.local_path,
+      brand_name: dialogInput.brand_name,
+      primary_color: dialogInput.primary_color,
+      accent_color: dialogInput.accent_color,
+      font: dialogInput.font,
+    };
+    const zipPath = await exportBrandKit(input, dialogInput.destination);
+    notify({ kind: "success", message: "Brand kit exported", detail: zipPath });
   }
 
   return (
@@ -136,9 +176,16 @@ export function TypographyPage() {
           </span>
           {selectedVariant ? (
             <>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button variant="primary" onClick={handleVectorize} disabled={!canVectorize}>
                   {vectorizing ? "Vectorizing…" : "Vectorize"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => setExportOpen(true)}
+                  disabled={!vectorized || !selectedVariant.local_path}
+                >
+                  Export brand kit
                 </Button>
                 {!selectedVariant.local_path && (
                   <span className="font-mono text-2xs text-neutral-dark-500">
@@ -158,6 +205,13 @@ export function TypographyPage() {
           )}
         </div>
       </div>
+      <BrandKitDialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        onSubmit={handleExport}
+        defaultBrandName={prompt.trim() || "Brand"}
+        defaultDestination={currentProject ? `${currentProject.path}/exports` : ""}
+      />
     </div>
   );
 }
