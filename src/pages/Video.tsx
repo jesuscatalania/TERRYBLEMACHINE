@@ -233,7 +233,10 @@ export function VideoPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={resetSegments}
+            onClick={() => {
+              resetSegments();
+              setRenderResult(null);
+            }}
             disabled={segments.length === 0}
           >
             Clear segments
@@ -262,13 +265,12 @@ export function VideoPage() {
               <span className="mb-2 block font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
                 Rendered
               </span>
+              {/* biome-ignore lint/a11y/useMediaCaption: generated videos have no captions */}
               <video
                 src={convertFileSrc(renderResult.local_path)}
                 controls
                 className="w-full rounded-xs border border-neutral-dark-700"
-              >
-                <track kind="captions" />
-              </video>
+              />
             </div>
           ) : null}
         </div>
