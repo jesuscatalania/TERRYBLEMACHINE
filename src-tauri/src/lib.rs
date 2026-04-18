@@ -9,6 +9,7 @@ pub mod mesh_pipeline;
 pub mod projects;
 pub mod storyboard_generator;
 pub mod taste_engine;
+pub mod video_pipeline;
 pub mod website_analyzer;
 
 use std::sync::Arc;
@@ -29,6 +30,8 @@ use mesh_pipeline::{MeshPipeline, RouterMeshPipeline};
 use projects::commands::{resolve_default_root, ProjectStoreState};
 use taste_engine::commands::TasteEngineState;
 use taste_engine::{ClaudeVisionAnalyzer, TasteEngine};
+use video_pipeline::commands::VideoPipelineState;
+use video_pipeline::{RouterVideoPipeline, VideoPipeline};
 use website_analyzer::commands::WebsiteAnalyzerState;
 use website_analyzer::{PlaywrightUrlAnalyzer, UrlAnalyzer};
 
@@ -143,6 +146,15 @@ pub fn run() {
             let mesh: Arc<dyn MeshPipeline> =
                 Arc::new(RouterMeshPipeline::new(Arc::clone(&ai_router_for_setup)));
             app.manage(MeshPipelineState::new(mesh));
+
+            // Video pipeline — routes TextToVideo/ImageToVideo through the
+            // AiRouter to Kling (Runway + Higgsfield as fallbacks, polling
+            // wired in T4), then downloads the resulting MP4 into the
+            // platform cache dir. Frontend loads via Tauri `convertFileSrc`;
+            // when the download fails, it falls back to the remote URL.
+            let video: Arc<dyn VideoPipeline> =
+                Arc::new(RouterVideoPipeline::new(Arc::clone(&ai_router_for_setup)));
+            app.manage(VideoPipelineState::new(video));
             Ok(())
         })
         .manage(KeyStoreState::new(keystore))
@@ -184,6 +196,8 @@ pub fn run() {
             mesh_pipeline::commands::generate_mesh_from_text,
             mesh_pipeline::commands::generate_mesh_from_image,
             mesh_pipeline::commands::export_mesh,
+            video_pipeline::commands::generate_video_from_text,
+            video_pipeline::commands::generate_video_from_image,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
