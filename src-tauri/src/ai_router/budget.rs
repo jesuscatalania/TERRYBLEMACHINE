@@ -108,12 +108,17 @@ pub struct UsageEntry {
 /// Source: `docs/LLM-STRATEGIE.md` §"Modell-Zuordnung nach Aufgabe". Numbers
 /// are rounded up slightly so we err on the side of over-counting.
 pub fn cost_cents_for(model: Model) -> u64 {
+    // Rough per-unit estimates — replace with live-provider costs when available.
     match model {
         // Claude Max — flat-fee abo.
         Model::ClaudeOpus | Model::ClaudeSonnet | Model::ClaudeHaiku => 0,
-        // Video abos — credits only.
-        Model::Kling20 => 13, // ≈ $0.084–0.168 per unit, average rounded up
-        Model::RunwayGen3 | Model::HiggsfieldMulti | Model::ShotstackMontage => 0,
+        // Video abos — credits only, but we bookkeep rough USD equivalents so
+        // the daily budget ceiling protects against runaway requests before a
+        // user's aboset runs dry.
+        Model::Kling20 => 15,    // ≈ $0.15 per 5s clip (abo credit equivalent)
+        Model::RunwayGen3 => 50, // ≈ $0.50 per 5s clip
+        Model::HiggsfieldMulti => 30, // ≈ $0.30 per clip
+        Model::ShotstackMontage => 10, // ≈ $0.10 per render
         // Image abos / pay-per-use.
         Model::IdeogramV3 => 0,
         Model::MeshyText3D | Model::MeshyImage3D => 0,
@@ -528,9 +533,14 @@ mod tests {
 
     #[test]
     fn cost_table_zero_for_abo_models_and_nonzero_for_paid() {
+        // Claude Max is the only remaining truly-free abo — video abos now
+        // carry non-zero rough-USD placeholders so daily budgets protect
+        // against runaway spend against a near-empty credit balance.
         assert_eq!(cost_cents_for(Model::ClaudeOpus), 0);
-        assert_eq!(cost_cents_for(Model::RunwayGen3), 0);
         assert_eq!(cost_cents_for(Model::IdeogramV3), 0);
+        assert!(cost_cents_for(Model::RunwayGen3) > 0);
+        assert!(cost_cents_for(Model::HiggsfieldMulti) > 0);
+        assert!(cost_cents_for(Model::ShotstackMontage) > 0);
         assert!(cost_cents_for(Model::FalFluxPro) > 0);
         assert!(cost_cents_for(Model::Kling20) > 0);
         assert!(cost_cents_for(Model::ReplicateFluxDev) > 0);
