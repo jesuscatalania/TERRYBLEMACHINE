@@ -1,13 +1,42 @@
 import { useState } from "react";
 import { CameraControls, type CameraMode } from "@/components/graphic3d/CameraControls";
+import { DepthPlane } from "@/components/graphic3d/DepthPlane";
 import type { LightingName } from "@/components/graphic3d/LightingPreset";
 import { ThreeCanvas } from "@/components/graphic3d/ThreeCanvas";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import { type DepthResult, generateDepth } from "@/lib/depthCommands";
+import { useUiStore } from "@/stores/uiStore";
 
 export function Graphic3DPage() {
   const [cameraMode, setCameraMode] = useState<CameraMode>("perspective");
   const [lighting, setLighting] = useState<LightingName>("studio");
   const [bloom, setBloom] = useState(false);
   const [ssao, setSsao] = useState(false);
+  const [imageUrl, setImageUrl] = useState("");
+  const [depthResult, setDepthResult] = useState<DepthResult | null>(null);
+  const [depthBusy, setDepthBusy] = useState(false);
+  const [displacementScale, setDisplacementScale] = useState(0.5);
+  const notify = useUiStore((s) => s.notify);
+
+  async function generateDepthForImage() {
+    const trimmed = imageUrl.trim();
+    if (!trimmed) return;
+    setDepthBusy(true);
+    try {
+      const result = await generateDepth({ image_url: trimmed, module: "graphic3d" });
+      setDepthResult(result);
+      notify({ kind: "success", message: "Depth map ready", detail: result.model });
+    } catch (err) {
+      notify({
+        kind: "error",
+        message: "Depth generation failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setDepthBusy(false);
+    }
+  }
 
   return (
     <div className="grid h-full grid-rows-[auto_1fr]">
@@ -17,6 +46,32 @@ export function Graphic3DPage() {
             MOD—03 · PSEUDO-3D
           </span>
         </div>
+        <div className="flex items-end gap-2">
+          <div className="flex-1">
+            <Input
+              label="Source image URL (for depth)"
+              id="graphic3d-image-url"
+              placeholder="https://example.com/image.png"
+              value={imageUrl}
+              onValueChange={(value) => {
+                setImageUrl(value);
+                if (depthResult) setDepthResult(null);
+              }}
+            />
+          </div>
+          <Button
+            variant="secondary"
+            onClick={generateDepthForImage}
+            disabled={!imageUrl.trim() || depthBusy}
+          >
+            {depthBusy ? "Generating…" : "Generate depth"}
+          </Button>
+        </div>
+        {depthBusy ? (
+          <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
+            Requesting depth map…
+          </span>
+        ) : null}
       </div>
       <div className="grid min-h-0 grid-cols-[15rem_1fr_14rem]">
         <div className="flex flex-col gap-3 border-neutral-dark-700 border-r p-4">
@@ -63,10 +118,18 @@ export function Graphic3DPage() {
           </div>
         </div>
         <ThreeCanvas cameraMode={cameraMode} lighting={lighting} bloom={bloom} ssao={ssao}>
-          <mesh>
-            <boxGeometry args={[1, 1, 1]} />
-            <meshStandardMaterial color="#e85d2d" />
-          </mesh>
+          {depthResult ? (
+            <DepthPlane
+              imageUrl={imageUrl}
+              depthUrl={depthResult.depth_url}
+              displacementScale={displacementScale}
+            />
+          ) : (
+            <mesh>
+              <boxGeometry args={[1, 1, 1]} />
+              <meshStandardMaterial color="#e85d2d" />
+            </mesh>
+          )}
         </ThreeCanvas>
         <div className="flex flex-col border-neutral-dark-700 border-l">
           <div className="flex items-center justify-between border-neutral-dark-700 border-b px-3 py-2">
@@ -74,10 +137,35 @@ export function Graphic3DPage() {
               Scene
             </span>
           </div>
-          <div className="flex-1 overflow-y-auto p-3">
-            <span className="font-mono text-2xs text-neutral-dark-500 uppercase tracking-label">
-              Empty
-            </span>
+          <div className="flex-1 overflow-y-auto">
+            {depthResult ? (
+              <div className="flex flex-col gap-2 p-3">
+                <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
+                  Depth
+                </span>
+                <span className="font-mono text-2xs text-neutral-dark-500">
+                  {depthResult.model}
+                </span>
+                <label className="flex flex-col gap-1 text-2xs text-neutral-dark-200">
+                  Displacement: {displacementScale.toFixed(2)}
+                  <input
+                    type="range"
+                    min={0}
+                    max={2}
+                    step={0.05}
+                    value={displacementScale}
+                    onChange={(e) => setDisplacementScale(Number(e.target.value))}
+                    className="accent-accent-500"
+                  />
+                </label>
+              </div>
+            ) : (
+              <div className="p-3">
+                <span className="font-mono text-2xs text-neutral-dark-500 uppercase tracking-label">
+                  Empty
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>
