@@ -12,6 +12,7 @@ pub mod remotion;
 pub mod shotstack_assembly;
 pub mod storyboard_generator;
 pub mod taste_engine;
+pub mod vectorizer;
 pub mod video_pipeline;
 pub mod website_analyzer;
 
@@ -35,6 +36,8 @@ use mesh_pipeline::{MeshPipeline, RouterMeshPipeline};
 use projects::commands::{resolve_default_root, ProjectStoreState};
 use taste_engine::commands::TasteEngineState;
 use taste_engine::{ClaudeVisionAnalyzer, TasteEngine};
+use vectorizer::commands::VectorizerState;
+use vectorizer::{Vectorizer, VtracerPipeline};
 use video_pipeline::commands::VideoPipelineState;
 use video_pipeline::{RouterVideoPipeline, VideoPipeline};
 use website_analyzer::commands::WebsiteAnalyzerState;
@@ -182,6 +185,12 @@ pub fn run() {
                 Arc::new(RouterLogoPipeline::new(Arc::clone(&ai_router_for_setup)));
             app.manage(LogoPipelineState::new(logo));
 
+            // Vectorizer — pure-Rust raster→SVG via the vtracer crate. No
+            // router, no network: runs synchronously on a blocking thread
+            // and returns the SVG markup inline for the SvgEditor.
+            let vect: Arc<dyn Vectorizer> = Arc::new(VtracerPipeline::new());
+            app.manage(VectorizerState::new(vect));
+
             // Video pipeline — routes TextToVideo/ImageToVideo through the
             // AiRouter to Kling (Runway + Higgsfield as fallbacks, polling
             // wired in T4), then downloads the resulting MP4 into the
@@ -261,6 +270,7 @@ pub fn run() {
             mesh_pipeline::commands::generate_mesh_from_image,
             mesh_pipeline::commands::export_mesh,
             logo_pipeline::commands::generate_logo_variants,
+            vectorizer::commands::vectorize_image,
             video_pipeline::commands::generate_video_from_text,
             video_pipeline::commands::generate_video_from_image,
             remotion::commands::render_remotion,
