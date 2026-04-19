@@ -449,7 +449,19 @@ impl FalClient {
             })?
             .to_string();
 
-        let final_body = self.poll_request(&status_url, &response_url).await?;
+        let poll_outcome = self.poll_request(&status_url, &response_url).await;
+        let final_body = match poll_outcome {
+            Ok(body) => body,
+            Err(e) => {
+                // Best-effort cancel: if we gave up polling (timeout) or
+                // hit a transient fetch error, fal's GPU may still be
+                // allocated + billing. Fire a cancel to stop the job
+                // before returning to the router. We ignore the cancel
+                // response; this is strictly additive.
+                self.try_cancel(&status_url).await;
+                return Err(e);
+            }
+        };
 
         // fal-Kling result body shape: `{ "video": { "url": ... }, "seed": .. }`.
         let video_url = final_body
@@ -547,6 +559,42 @@ impl FalClient {
             self.poll_max_attempts
         )))
     }
+
+    /// Best-effort cancel of a fal.ai queue job when polling aborts.
+    /// fal's docs confirm cancel is free while IN_QUEUE; IN_PROGRESS jobs
+    /// may still bill for already-rendered seconds. Either way, firing
+    /// this is strictly a cost-reduction — we never surface its outcome.
+    ///
+    /// Derives the cancel URL from the status_url by swapping `/status`
+    /// → `/cancel` (fal's queue paths follow
+    /// `/{model}/requests/{id}/{status|cancel}`).
+    async fn try_cancel(&self, status_url: &str) {
+        let Some(cancel_url) = cancel_url_from_status(status_url) else {
+            return;
+        };
+        let Ok(key) = get_api_key(&*self.key_store, KEYCHAIN_SERVICE) else {
+            return;
+        };
+        // Fire-and-forget with a tight timeout — the calling path has
+        // already decided to error out; we don't want to wait long.
+        let _ = self
+            .http
+            .put(&cancel_url)
+            .header("authorization", format!("Key {key}"))
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await;
+    }
+}
+
+/// Swap the trailing `/status` segment for `/cancel` to derive fal.ai's
+/// cancel endpoint from the status URL. Returns `None` if the URL
+/// doesn't end in `/status`, to avoid firing at an unexpected path.
+fn cancel_url_from_status(status_url: &str) -> Option<String> {
+    let trimmed = status_url.trim_end_matches('/');
+    trimmed
+        .strip_suffix("/status")
+        .map(|base| format!("{base}/cancel"))
 }
 
 // ─── Response types ─────────────────────────────────────────────────
@@ -643,6 +691,34 @@ mod tests {
             payload,
             model_override: None,
         }
+    }
+
+    // ─── cancel_url_from_status (pure helper) ─────────────────────────
+
+    #[test]
+    fn cancel_url_swaps_status_suffix() {
+        let status = "https://queue.fal.run/fal-ai/kling-video/requests/abc/status";
+        assert_eq!(
+            cancel_url_from_status(status).as_deref(),
+            Some("https://queue.fal.run/fal-ai/kling-video/requests/abc/cancel")
+        );
+    }
+
+    #[test]
+    fn cancel_url_tolerates_trailing_slash() {
+        let status = "https://queue.fal.run/fal-ai/kling-video/requests/abc/status/";
+        assert_eq!(
+            cancel_url_from_status(status).as_deref(),
+            Some("https://queue.fal.run/fal-ai/kling-video/requests/abc/cancel")
+        );
+    }
+
+    #[test]
+    fn cancel_url_returns_none_for_non_status_path() {
+        // Defensive: if fal ever changes the URL scheme, we don't want
+        // to blindly PUT to an unrelated endpoint.
+        let not_status = "https://queue.fal.run/fal-ai/kling-video/requests/abc";
+        assert_eq!(cancel_url_from_status(not_status), None);
     }
 
     // ─── Happy paths (one per model) ──────────────────────────────────
