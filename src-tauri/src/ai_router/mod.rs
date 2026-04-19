@@ -204,7 +204,14 @@ impl AiRouter {
             match client.execute(model, request).await {
                 Ok(resp) => return Ok(resp),
                 Err(err) if attempt + 1 < self.retry.max_attempts && err.is_retriable() => {
-                    sleep(self.retry.backoff_for(attempt)).await;
+                    // Honor provider-supplied Retry-After when present —
+                    // otherwise fall back to policy-driven exponential
+                    // backoff (debug-review I5).
+                    let delay = match &err {
+                        ProviderError::RateLimited(d) => *d,
+                        _ => self.retry.backoff_for(attempt),
+                    };
+                    sleep(delay).await;
                     attempt += 1;
                 }
                 Err(err) => return Err(err),
@@ -503,6 +510,102 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].provider, Provider::Fal);
         assert_eq!(entries[0].task, Some(TaskKind::ImageGeneration));
+    }
+
+    /// A mock that returns the given sequence of errors (one per call) and
+    /// then succeeds on every subsequent call. Used to observe how the
+    /// router paces retries through real `tokio::time::sleep`.
+    struct SequencedErrorClient {
+        provider: Provider,
+        errors: std::sync::Mutex<std::collections::VecDeque<ProviderError>>,
+        calls: AtomicUsize,
+    }
+
+    impl SequencedErrorClient {
+        fn new(provider: Provider, errors: Vec<ProviderError>) -> Self {
+            Self {
+                provider,
+                errors: std::sync::Mutex::new(errors.into()),
+                calls: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl AiClient for SequencedErrorClient {
+        fn provider(&self) -> Provider {
+            self.provider
+        }
+        fn supports(&self, _model: Model) -> bool {
+            true
+        }
+        async fn execute(
+            &self,
+            model: Model,
+            request: &AiRequest,
+        ) -> Result<AiResponse, ProviderError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let next = self.errors.lock().unwrap().pop_front();
+            if let Some(err) = next {
+                return Err(err);
+            }
+            Ok(AiResponse {
+                request_id: request.id.clone(),
+                model,
+                output: serde_json::Value::Null,
+                cost_cents: Some(0),
+                cached: false,
+            })
+        }
+        async fn health_check(&self) -> bool {
+            true
+        }
+        async fn get_usage(&self) -> Result<ProviderUsage, ProviderError> {
+            Ok(ProviderUsage::default())
+        }
+    }
+
+    /// Regression for debug-review I5: RateLimited(d) must sleep for `d`, not
+    /// for the policy's exponential backoff. With the bug the router would
+    /// wait ~200ms (policy default) regardless of the provider's Retry-After;
+    /// with the fix we wait ≥50ms (the honored Retry-After) but still well
+    /// under the ~200ms policy backoff — so a bracketed assertion proves the
+    /// delay came from the provider, not the policy.
+    #[tokio::test]
+    async fn route_honors_provider_retry_after_over_policy_backoff() {
+        let client = Arc::new(SequencedErrorClient::new(
+            Provider::Claude,
+            vec![ProviderError::RateLimited(Duration::from_millis(50))],
+        ));
+        // Use the DEFAULT policy (200ms base, 2× factor, 5s max) so the bug
+        // and the fix actually differ. If this test ran with a zero policy
+        // nothing would be detected.
+        let router = AiRouter::new(
+            Arc::new(DefaultRoutingStrategy),
+            [(Provider::Claude, client.clone() as Arc<dyn AiClient>)]
+                .into_iter()
+                .collect(),
+            RetryPolicy::default_policy(),
+            Arc::new(PriorityQueue::new()),
+        );
+
+        let start = std::time::Instant::now();
+        router.route(text_request()).await.unwrap();
+        let elapsed = start.elapsed();
+
+        // Must have slept AT LEAST the honored Retry-After.
+        assert!(
+            elapsed >= Duration::from_millis(50),
+            "expected ≥50ms elapsed (Retry-After honored), got {elapsed:?}"
+        );
+        // Must NOT have slept the full default-policy backoff (200ms base).
+        // Give ourselves generous headroom (150ms) for scheduler jitter and
+        // the cost of two client calls on a loaded CI box.
+        assert!(
+            elapsed < Duration::from_millis(150),
+            "expected <150ms elapsed (policy backoff would be ≥200ms), got {elapsed:?}"
+        );
+        assert_eq!(client.calls.load(Ordering::SeqCst), 2);
     }
 
     /// Regression for debug-review C1: when a POST-then-poll client surfaces

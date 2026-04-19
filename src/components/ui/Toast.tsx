@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { NotificationKind } from "@/stores/uiStore";
 import { useUiStore } from "@/stores/uiStore";
 
@@ -25,21 +25,46 @@ const KIND_TONE: Record<NotificationKind, string> = {
 export function Toaster({ autoDismissMs = 5000 }: { autoDismissMs?: number }) {
   const notifications = useUiStore((s) => s.notifications);
   const dismiss = useUiStore((s) => s.dismissNotification);
+  // Per-id timer map persists across renders so pushing a new toast doesn't
+  // reset the dismiss-timer of already-visible toasts (debug-review I4).
+  const timersRef = useRef<Map<string, number>>(new Map());
 
-  // auto-dismiss each toast after `autoDismissMs`
+  // auto-dismiss each toast after `autoDismissMs` — schedule exactly once
+  // per id on first sighting, leave existing timers alone on re-renders.
   useEffect(() => {
-    if (notifications.length === 0) return;
-    const timers: number[] = [];
+    const currentIds = new Set(notifications.map((n) => n.id));
+    // Schedule timers for newly seen notifications.
     for (const n of notifications) {
+      if (timersRef.current.has(n.id)) continue;
       // Don't auto-dismiss in-flight progress toasts; the caller updates them
       // explicitly to current === total or pushes a fresh terminal toast.
       if (n.progress && n.progress.current < n.progress.total) continue;
-      timers.push(window.setTimeout(() => dismiss(n.id), autoDismissMs));
+      const handle = window.setTimeout(() => {
+        dismiss(n.id);
+        timersRef.current.delete(n.id);
+      }, autoDismissMs);
+      timersRef.current.set(n.id, handle);
     }
-    return () => {
-      for (const t of timers) window.clearTimeout(t);
-    };
+    // Clear timers for notifications that disappeared (dismissed externally).
+    for (const [id, handle] of timersRef.current) {
+      if (!currentIds.has(id)) {
+        window.clearTimeout(handle);
+        timersRef.current.delete(id);
+      }
+    }
   }, [notifications, dismiss, autoDismissMs]);
+
+  // On unmount, clear every pending timer so unmounted Toasters don't leak
+  // setTimeout handles into the test environment.
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      for (const handle of timers.values()) {
+        window.clearTimeout(handle);
+      }
+      timers.clear();
+    };
+  }, []);
 
   if (typeof document === "undefined") return null;
 

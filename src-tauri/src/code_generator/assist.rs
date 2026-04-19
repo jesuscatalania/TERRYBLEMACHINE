@@ -12,7 +12,6 @@ use thiserror::Error;
 
 use crate::ai_router::commands::AiRouterState;
 use crate::ai_router::{AiRequest, AiRouter, Complexity, Priority, TaskKind};
-use crate::code_generator::types::GeneratedFile;
 
 /// Unique delimiter used to fence the user's selection inside the prompt.
 ///
@@ -24,13 +23,15 @@ const SELECTION_DELIM: &str = "<<<<TERRYBLE-SELECTION>>>>";
 
 /// Incoming modify request from the frontend.
 ///
-/// `files` is accepted as context so the prompt can reference the rest of
-/// the project if needed (currently we only send the selection, but the
-/// payload is reserved for richer context in follow-up work).
+/// Previously carried a `files: Vec<GeneratedFile>` context field that was
+/// shipped over IPC on every keystroke but never consumed by the prompt.
+/// Dropped in debug-review Important #3; richer project-context wiring is
+/// tracked separately so we don't pay for unused IPC traffic in the meantime.
+/// `#[serde(deny_unknown_fields)]` is intentionally NOT set so frontend
+/// callers that haven't redeployed yet still succeed (extra `files` field is
+/// ignored by the default serde behavior).
 #[derive(Debug, Clone, Deserialize)]
 pub struct ModifyRequest {
-    #[serde(default)]
-    pub files: Vec<GeneratedFile>,
     pub file_path: String,
     pub selection: String,
     pub instruction: String,
@@ -199,10 +200,6 @@ pub async fn modify_code_selection(
     req: ModifyRequest,
     state: State<'_, AiRouterState>,
 ) -> Result<ModifyResponse, String> {
-    // TODO(#TBD): `req.files` is currently shipped over IPC on every
-    // keystroke-triggered assist call but never used in the prompt. Either
-    // wire it into the prompt as additional context or drop it from the
-    // wire payload to keep IPC lean.
     let router: Arc<AiRouter> = Arc::clone(&state.0);
     modify_selection(&router, req)
         .await
@@ -245,10 +242,6 @@ mod tests {
 
     fn sample_request() -> ModifyRequest {
         ModifyRequest {
-            files: vec![GeneratedFile {
-                path: "index.html".into(),
-                content: "<h1>Old</h1>".into(),
-            }],
             file_path: "index.html".into(),
             selection: "<h1>Old</h1>".into(),
             instruction: "make the headline larger and bold".into(),

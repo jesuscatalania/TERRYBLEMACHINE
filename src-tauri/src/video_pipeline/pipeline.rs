@@ -113,10 +113,9 @@ impl VideoPipeline for RouterVideoPipeline {
         }
         let mut payload = json!({});
         if let Some(d) = input.duration_s {
-            payload
-                .as_object_mut()
-                .expect("payload is object")
-                .insert("duration".into(), json!(d.round() as u64));
+            if let Some(obj) = payload.as_object_mut() {
+                obj.insert("duration".into(), json!(d.round() as u64));
+            }
         }
         let req = AiRequest {
             id: uuid::Uuid::new_v4().to_string(),
@@ -168,10 +167,9 @@ impl VideoPipeline for RouterVideoPipeline {
         }
         let mut payload = json!({ "image_url": input.image_url });
         if let Some(d) = input.duration_s {
-            payload
-                .as_object_mut()
-                .expect("payload is object")
-                .insert("duration".into(), json!(d.round() as u64));
+            if let Some(obj) = payload.as_object_mut() {
+                obj.insert("duration".into(), json!(d.round() as u64));
+            }
         }
         let req = AiRequest {
             id: uuid::Uuid::new_v4().to_string(),

@@ -147,9 +147,9 @@ impl RunwayClient {
                     "runway: motion_brush must be an object".into(),
                 ));
             }
-            body.as_object_mut()
-                .expect("body is a JSON object")
-                .insert("motion_brush".into(), motion_brush.clone());
+            if let Some(obj) = body.as_object_mut() {
+                obj.insert("motion_brush".into(), motion_brush.clone());
+            }
         }
 
         let task_id = self.start_task(IMAGE_TO_VIDEO_PATH, &body).await?;

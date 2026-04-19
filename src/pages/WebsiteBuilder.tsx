@@ -104,8 +104,11 @@ export function WebsiteBuilderPage() {
     instruction: string;
     files: GeneratedFile[];
   }): Promise<string> {
+    // `input.files` is intentionally ignored — the backend no longer
+    // consumes project-wide context in the modify-selection IPC payload
+    // (debug-review Important #3). Re-introduce when the prompt actually
+    // uses project context.
     const { replacement } = await modifyCodeSelection({
-      files: input.files,
       file_path: input.filePath,
       selection: input.selection,
       instruction: input.instruction,

@@ -79,7 +79,6 @@ export function exportWebsite(request: ExportRequest): Promise<string> {
 // ─── Inline code-assist (Cmd+K selection → replacement) ────────────────
 
 export interface ModifyCodeSelectionInput {
-  files: GeneratedFile[];
   file_path: string;
   selection: string;
   instruction: string;

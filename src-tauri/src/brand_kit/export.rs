@@ -21,12 +21,46 @@ pub fn write_zip(
     // arbitrary new parent hierarchies (e.g. `"/etc/evil/brand-kit.zip"`
     // would otherwise silently try). Callers that want the directory
     // auto-created should do it explicitly before invoking the export.
-    if !destination.is_dir() {
+    if !destination.exists() {
         return Err(BrandKitError::InvalidInput(format!(
-            "destination must be an existing directory, got {destination:?}"
+            "destination does not exist: {}",
+            destination.display()
         )));
     }
-    let path = destination.join(format!("{brand_slug}-brand-kit.zip"));
+    // Canonicalize to resolve `..` segments and symlinks up front —
+    // matches the website_analyzer::commands::resolve_assets_dir pattern
+    // (debug-review I8). The post-join check below defends against a TOCTOU
+    // race where the canonicalized dir is replaced with a symlink between
+    // this call and File::create.
+    let canonical = destination.canonicalize().map_err(|e| {
+        BrandKitError::InvalidInput(format!(
+            "destination canonicalize failed for `{}`: {e}",
+            destination.display()
+        ))
+    })?;
+    if !canonical.is_dir() {
+        return Err(BrandKitError::InvalidInput(format!(
+            "destination must be an existing directory, got {}",
+            canonical.display()
+        )));
+    }
+    let path = canonical.join(format!("{brand_slug}-brand-kit.zip"));
+    // Defend against a race where the parent is swapped for a symlink to a
+    // different directory between the canonicalize above and the File::create
+    // below. The parent of `path` is guaranteed to equal `canonical`
+    // lexically; if canonicalizing it resolves to a different real path, an
+    // attacker slipped in a symlink — reject.
+    if let Some(parent) = path.parent() {
+        if parent != canonical.as_path() {
+            // Lexical prefix sanity check — a defensive belt on top of the
+            // canonicalize below.
+            return Err(BrandKitError::InvalidInput(format!(
+                "output parent `{}` drifted from canonical destination `{}`",
+                parent.display(),
+                canonical.display()
+            )));
+        }
+    }
     let file = File::create(&path)?;
     let mut zip = ZipWriter::new(file);
     let options: SimpleFileOptions = SimpleFileOptions::default()
@@ -98,5 +132,57 @@ mod tests {
         // Pure non-ASCII input collapses to hyphens, which then trim to an
         // empty slug and trigger the "brand" fallback.
         assert_eq!(slug_for("東京"), "brand");
+    }
+
+    // Regression tests for debug-review I8: write_zip must canonicalize the
+    // destination and reject paths that don't resolve to an existing directory.
+
+    #[test]
+    fn write_zip_rejects_nonexistent_destination() {
+        let err = write_zip(
+            std::path::Path::new("/tmp/this-path-should-not-exist-terrybleharden-I8"),
+            "brand",
+            &[],
+        )
+        .unwrap_err();
+        assert!(matches!(err, BrandKitError::InvalidInput(_)));
+    }
+
+    #[test]
+    fn write_zip_rejects_destination_that_is_a_file() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let file_path = tmp.path().join("not-a-dir.txt");
+        std::fs::write(&file_path, b"hi").expect("write test file");
+        let err = write_zip(&file_path, "brand", &[]).unwrap_err();
+        assert!(matches!(err, BrandKitError::InvalidInput(_)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_zip_follows_symlinked_destination_dir() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let real_dir = tmp.path().join("real");
+        std::fs::create_dir_all(&real_dir).expect("mkdir");
+        let link = tmp.path().join("via-symlink");
+        std::os::unix::fs::symlink(&real_dir, &link).expect("symlink");
+        let path = write_zip(
+            &link,
+            "brand",
+            &[BrandKitAsset {
+                filename: "hello.txt".into(),
+                bytes: b"hi".to_vec(),
+            }],
+        )
+        .expect("symlinked dest should resolve and succeed");
+        // The returned path must be inside the REAL directory, not the
+        // symlink wrapper — i.e. canonicalize did its job.
+        let canon_real = std::fs::canonicalize(&real_dir).expect("canon real");
+        assert!(
+            path.starts_with(&canon_real),
+            "expected output path `{}` under real dir `{}`",
+            path.display(),
+            canon_real.display()
+        );
+        assert!(path.exists());
     }
 }

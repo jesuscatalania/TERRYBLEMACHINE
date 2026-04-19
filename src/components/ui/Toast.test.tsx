@@ -1,12 +1,17 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Toaster } from "@/components/ui/Toast";
 import { useUiStore } from "@/stores/uiStore";
 
 describe("Toaster", () => {
   beforeEach(() => {
     useUiStore.setState({ modals: [], notifications: [], loadingJobs: 0 });
+  });
+
+  afterEach(() => {
+    // Ensure no vi.useFakeTimers() state bleeds between tests.
+    vi.useRealTimers();
   });
 
   it("renders no toasts by default", () => {
@@ -56,5 +61,34 @@ describe("Toaster", () => {
     useUiStore.getState().notify({ kind: "info", message: "Hello" });
     render(<Toaster />);
     expect(screen.queryByTestId("toast-progress")).not.toBeInTheDocument();
+  });
+
+  // Regression for debug-review I4: pushing a new toast must NOT reset the
+  // dismiss-timer of toasts that are already visible. Toast A pushed at t=0
+  // with autoDismissMs=5000 has to go away at t=5000 regardless of B's
+  // arrival at t=3000.
+  it("uses per-id dismiss timers and does not reset older toasts on new pushes", () => {
+    vi.useFakeTimers();
+    useUiStore.getState().notify({ kind: "info", message: "A" });
+    render(<Toaster autoDismissMs={5000} />);
+    expect(useUiStore.getState().notifications).toHaveLength(1);
+
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    // After 3s, push B. Under the buggy (reset) behavior the effect would
+    // rebuild the timer set and A would live another 5s.
+    act(() => {
+      useUiStore.getState().notify({ kind: "info", message: "B" });
+    });
+    expect(useUiStore.getState().notifications).toHaveLength(2);
+
+    // Advance another 2500ms (total 5500ms from A, 2500ms from B).
+    act(() => {
+      vi.advanceTimersByTime(2500);
+    });
+    const msgs = useUiStore.getState().notifications.map((n) => n.message);
+    expect(msgs).not.toContain("A");
+    expect(msgs).toContain("B");
   });
 });
