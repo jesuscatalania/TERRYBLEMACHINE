@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
+import { FeaturesOverlay } from "@/components/shell/FeaturesOverlay";
 import { Header } from "@/components/shell/Header";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { StatusBar } from "@/components/shell/StatusBar";
@@ -17,6 +18,7 @@ export function Shell({ children, onNew, onGenerate, onOpenSettings, renderProgr
   const currentProject = useProjectStore((s) => s.currentProject);
   const sidebarOpen = useAppStore((s) => s.sidebarOpen);
   const gridCols = sidebarOpen ? "grid-cols-[15rem_1fr]" : "grid-cols-[3.5rem_1fr]";
+  const [featuresOpen, setFeaturesOpen] = useState(false);
 
   return (
     <div
@@ -31,6 +33,7 @@ export function Shell({ children, onNew, onGenerate, onOpenSettings, renderProgr
         onNew={onNew}
         onGenerate={onGenerate}
         onOpenSettings={onOpenSettings}
+        onOpenFeatures={() => setFeaturesOpen(true)}
       />
       <main className="relative overflow-hidden">
         {/* Schematic grid background */}
@@ -48,6 +51,7 @@ export function Shell({ children, onNew, onGenerate, onOpenSettings, renderProgr
         <div className="relative h-full overflow-auto">{children}</div>
       </main>
       <StatusBar renderProgress={renderProgress} />
+      <FeaturesOverlay open={featuresOpen} onClose={() => setFeaturesOpen(false)} />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { Settings } from "lucide-react";
+import { BookOpen, Settings } from "lucide-react";
 import { RecentsMenu } from "@/components/projects/RecentsMenu";
 import { Breadcrumbs } from "@/components/shell/Breadcrumbs";
 import { Button } from "@/components/shell/Button";
@@ -10,6 +10,7 @@ export interface HeaderProps {
   onNew?: () => void;
   onGenerate?: () => void;
   onOpenSettings?: () => void;
+  onOpenFeatures?: () => void;
 }
 
 export function Header({
@@ -17,6 +18,7 @@ export function Header({
   onNew,
   onGenerate,
   onOpenSettings,
+  onOpenFeatures,
 }: HeaderProps) {
   const activeModule = useAppStore((s) => s.activeModule);
   const mod = getModule(activeModule);
@@ -31,6 +33,9 @@ export function Header({
         <Button onClick={onNew}>New</Button>
         <Button variant="primary" onClick={onGenerate}>
           Generate
+        </Button>
+        <Button variant="icon" aria-label="Was kann das?" onClick={onOpenFeatures}>
+          <BookOpen className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
         </Button>
         <Button variant="icon" aria-label="Settings" onClick={onOpenSettings}>
           <Settings className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
