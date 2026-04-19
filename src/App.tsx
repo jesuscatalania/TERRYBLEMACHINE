@@ -19,6 +19,7 @@ import { useAppStore } from "@/stores/appStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useUiStore } from "@/stores/uiStore";
 
+const ChatPage = lazy(() => import("@/pages/Chat").then((m) => ({ default: m.ChatPage })));
 const DesignSystemPage = lazy(() =>
   import("@/pages/DesignSystem").then((m) => ({ default: m.DesignSystemPage })),
 );
@@ -58,6 +59,7 @@ function AnimatedRoutes() {
             <Route path="/graphic3d" element={<Graphic3DPage />} />
             <Route path="/video" element={<VideoPage />} />
             <Route path="/typography" element={<TypographyPage />} />
+            <Route path="/chat" element={<ChatPage />} />
             <Route path="/design-system" element={<DesignSystemPage />} />
             <Route path="*" element={<Navigate to="/website" replace />} />
           </Routes>
