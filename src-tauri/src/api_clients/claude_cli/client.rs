@@ -130,6 +130,21 @@ impl ClaudeCliClient {
         let slug = Self::model_slug(model).ok_or_else(|| {
             ProviderError::Permanent(format!("ClaudeCliClient: unsupported model {model:?}"))
         })?;
+        // `--tools ""` disables ALL tools so Claude answers with pure text
+        // instead of trying to invoke Write/Edit/Bash/Skill etc. Our calls
+        // are strictly one-shot text generation (storyboard JSON, code
+        // scaffolds, prompt rewrites, chat replies) — we never want the
+        // CLI to run tools in the user's working directory.
+        //
+        // Without this, a prompt like "generate a website" triggered
+        // Claude-Code to attempt tool invocations (Skill activation,
+        // Write to scaffold files, Task to spawn subagents). Each tool
+        // call either blocked on permission prompts (no tty to respond)
+        // or silently multiplied the round-trip time — symptom: 10-min
+        // loading spinners ending in empty output.
+        //
+        // `--permission-mode bypassPermissions` is belt-and-suspenders:
+        // if the tool-disable ever regresses, at least no prompts hang.
         let args = vec![
             "-p".to_string(),
             prompt.to_string(),
@@ -138,6 +153,10 @@ impl ClaudeCliClient {
             "--output-format".to_string(),
             "stream-json".to_string(),
             "--verbose".to_string(),
+            "--tools".to_string(),
+            "".to_string(),
+            "--permission-mode".to_string(),
+            "bypassPermissions".to_string(),
         ];
         let result = self.spawner.spawn(&self.binary, &args, None).await;
         if result.exit_code != 0 {
