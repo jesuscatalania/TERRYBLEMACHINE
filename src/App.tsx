@@ -7,6 +7,7 @@ import { Shell } from "@/components/shell/Shell";
 import { Toaster } from "@/components/ui/Toast";
 import { useBudgetPoll } from "@/hooks/useBudgetPoll";
 import { useGlobalKeyboardDispatch } from "@/hooks/useGlobalKeyboardDispatch";
+import { useKeyboardShortcut } from "@/hooks/useKeyboardShortcut";
 import { useModuleRouteSync } from "@/hooks/useModuleRouteSync";
 import { useProjectsBoot } from "@/hooks/useProjectsBoot";
 import { useUndoRedo } from "@/hooks/useUndoRedo";
@@ -59,6 +60,15 @@ function App() {
   const activeModule = useAppStore((s) => s.activeModule);
   const openProject = useProjectStore((s) => s.openProject);
   const notify = useUiStore((s) => s.notify);
+
+  const openNewProject = useCallback(() => setNewDialogOpen(true), []);
+  useKeyboardShortcut({
+    id: "global:new-project",
+    combo: "Mod+N",
+    handler: openNewProject,
+    scope: "global",
+    label: "New project",
+  });
 
   const handleCreate = useCallback(
     async (input: NewProjectInput) => {

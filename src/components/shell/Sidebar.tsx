@@ -1,7 +1,9 @@
 import { ChevronLeft, ChevronRight, Layers } from "lucide-react";
+import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { MODULES } from "@/components/shell/modules";
 import { SidebarItem } from "@/components/shell/SidebarItem";
+import { useKeyboardShortcut } from "@/hooks/useKeyboardShortcut";
 import { moduleToPath } from "@/lib/moduleRoutes";
 import type { ModuleId } from "@/stores/appStore";
 import { useAppStore } from "@/stores/appStore";
@@ -34,10 +36,55 @@ export function Sidebar() {
   const currentProject = useProjectStore((s) => s.currentProject);
   const navigate = useNavigate();
 
-  const selectModule = (id: ModuleId) => {
-    setActiveModule(id);
-    navigate(moduleToPath(id));
-  };
+  const selectModule = useCallback(
+    (id: ModuleId) => {
+      setActiveModule(id);
+      navigate(moduleToPath(id));
+    },
+    [setActiveModule, navigate],
+  );
+
+  const switchToWebsite = useCallback(() => selectModule("website"), [selectModule]);
+  const switchToGraphic2D = useCallback(() => selectModule("graphic2d"), [selectModule]);
+  const switchToGraphic3D = useCallback(() => selectModule("graphic3d"), [selectModule]);
+  const switchToVideo = useCallback(() => selectModule("video"), [selectModule]);
+  const switchToTypography = useCallback(() => selectModule("typography"), [selectModule]);
+
+  useKeyboardShortcut({
+    id: "global:module:website",
+    combo: "Mod+1",
+    handler: switchToWebsite,
+    scope: "global",
+    label: "Website",
+  });
+  useKeyboardShortcut({
+    id: "global:module:graphic2d",
+    combo: "Mod+2",
+    handler: switchToGraphic2D,
+    scope: "global",
+    label: "Graphic 2D",
+  });
+  useKeyboardShortcut({
+    id: "global:module:graphic3d",
+    combo: "Mod+3",
+    handler: switchToGraphic3D,
+    scope: "global",
+    label: "Pseudo-3D",
+  });
+  useKeyboardShortcut({
+    id: "global:module:video",
+    combo: "Mod+4",
+    handler: switchToVideo,
+    scope: "global",
+    label: "Video",
+  });
+  useKeyboardShortcut({
+    id: "global:module:typography",
+    combo: "Mod+5",
+    handler: switchToTypography,
+    scope: "global",
+    label: "Type & Logo",
+  });
 
   return (
     <aside className="flex h-full flex-col border-neutral-dark-600 border-r bg-neutral-dark-900">
