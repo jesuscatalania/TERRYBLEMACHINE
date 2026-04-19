@@ -79,6 +79,22 @@ pub enum CodeGenError {
 #[async_trait]
 pub trait CodeGenerator: Send + Sync {
     async fn generate(&self, input: GenerationInput) -> Result<GeneratedProject, CodeGenError>;
+
+    /// Refine an existing [`GeneratedProject`] via a free-text instruction
+    /// (e.g. *"mach den Planeten rot, entferne den Header"*). Returns the
+    /// (possibly mutated) project plus the list of paths that changed —
+    /// the UI uses the second element to highlight diffs.
+    ///
+    /// Default impl is a no-op so test doubles don't need to re-implement
+    /// this when they only care about `generate`; production implementations
+    /// override.
+    async fn refine(
+        &self,
+        project: GeneratedProject,
+        _instruction: &str,
+    ) -> Result<(GeneratedProject, Vec<String>), CodeGenError> {
+        Ok((project, Vec::new()))
+    }
 }
 
 #[cfg(test)]

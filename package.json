@@ -20,6 +20,7 @@
     "e2e:install": "playwright install --with-deps chromium"
   },
   "dependencies": {
+    "@codesandbox/sandpack-react": "^2.20.0",
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@fontsource/inter": "^5.2.8",
     "@monaco-editor/react": "^4.7.0",

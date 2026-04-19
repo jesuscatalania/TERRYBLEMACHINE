@@ -31,6 +31,15 @@ vi.mock("@/lib/websiteCommands", () => ({
   })),
   exportWebsite: vi.fn(async () => "/tmp/export.zip"),
   modifyCodeSelection: vi.fn(async () => ({ replacement: "" })),
+  openInBrowser: vi.fn(async () => "file:///tmp/tm-preview-abc/index.html"),
+  refineWebsite: vi.fn(async () => ({
+    project: {
+      summary: "refined-summary",
+      prompt: "test",
+      files: [{ path: "index.html", content: "<h1>Refined</h1>" }],
+    },
+    changed_paths: ["index.html"],
+  })),
 }));
 
 vi.mock("@/lib/projectCommands", () => ({
@@ -44,7 +53,7 @@ vi.mock("@/lib/projectCommands", () => ({
   isProjectIpcError: (v: unknown) => typeof v === "object" && v !== null && "kind" in v,
 }));
 
-import { generateWebsite } from "@/lib/websiteCommands";
+import { generateWebsite, openInBrowser, refineWebsite } from "@/lib/websiteCommands";
 import { WebsiteBuilderPage } from "@/pages/WebsiteBuilder";
 import { useProjectStore } from "@/stores/projectStore";
 
@@ -60,6 +69,8 @@ describe("WebsiteBuilderPage", () => {
   beforeEach(() => {
     useProjectStore.setState({ currentProject: null, recents: [] });
     vi.mocked(generateWebsite).mockClear();
+    vi.mocked(openInBrowser).mockClear();
+    vi.mocked(refineWebsite).mockClear();
   });
 
   it("renders both the prompt textarea and the reference URL input", () => {
@@ -114,5 +125,50 @@ describe("WebsiteBuilderPage", () => {
       module: "website",
       model_override: "ClaudeSonnet",
     });
+  });
+
+  it("keeps the View-in-Browser button disabled until a project is generated", () => {
+    renderPage();
+    expect(screen.getByRole("button", { name: /im browser öffnen/i })).toBeDisabled();
+  });
+
+  it("calls openInBrowser when the View-in-Browser button is clicked after generation", async () => {
+    renderPage();
+    fireEvent.change(screen.getByLabelText(/describe the site/i), {
+      target: { value: "coffee" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^generate$/i }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /im browser öffnen/i })).not.toBeDisabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /im browser öffnen/i }));
+    await waitFor(() => expect(openInBrowser).toHaveBeenCalledTimes(1));
+  });
+
+  it("hides the Refine panel until a project exists, then shows it", async () => {
+    renderPage();
+    expect(screen.queryByTestId("refine-panel")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/describe the site/i), {
+      target: { value: "coffee" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^generate$/i }));
+    await waitFor(() => expect(screen.getByTestId("refine-panel")).toBeInTheDocument());
+  });
+
+  it("calls refineWebsite with the current project and trimmed instruction", async () => {
+    renderPage();
+    fireEvent.change(screen.getByLabelText(/describe the site/i), {
+      target: { value: "coffee" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^generate$/i }));
+    await waitFor(() => expect(screen.getByTestId("refine-panel")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText(/refine instruction/i), {
+      target: { value: "  make it red  " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^refine$/i }));
+    await waitFor(() => expect(refineWebsite).toHaveBeenCalledTimes(1));
+    const [projectArg, instructionArg] = vi.mocked(refineWebsite).mock.calls[0] ?? [];
+    expect(projectArg).toMatchObject({ summary: "test-summary" });
+    expect(instructionArg).toBe("make it red");
   });
 });

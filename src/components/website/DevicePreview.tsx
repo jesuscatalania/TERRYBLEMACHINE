@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { GeneratedFile } from "@/lib/websiteCommands";
+import { SandpackPreview, shouldUseSandpack } from "./SandpackPreview";
 
 export type DeviceSize = "desktop" | "tablet" | "mobile";
 
@@ -20,20 +21,45 @@ export interface DevicePreviewProps {
  * Renders the generated project's `index.html` inside an iframe scoped to a
  * device-specific width. Uses `srcdoc` so changes land immediately without a
  * filesystem round-trip.
+ *
+ * When the generated project looks like a JS/TS bundle (JSX/TSX files, a
+ * Vite config, or `package.json` with React), execution is handed off to
+ * {@link SandpackPreview} which spins up a real in-browser bundler. Plain
+ * static HTML projects keep using the cheap iframe path below.
  */
 export function DevicePreview({ files, device, debounceMs = 150 }: DevicePreviewProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
-  const html = useMemo(() => composeHtml(files), [files]);
+  const useSandpack = useMemo(() => shouldUseSandpack(files), [files]);
+  const html = useMemo(() => (useSandpack ? "" : composeHtml(files)), [files, useSandpack]);
 
   useEffect(() => {
+    if (useSandpack) return;
     const id = window.setTimeout(() => {
       if (iframeRef.current) {
         iframeRef.current.srcdoc = html;
       }
     }, debounceMs);
     return () => window.clearTimeout(id);
-  }, [html, debounceMs]);
+  }, [html, debounceMs, useSandpack]);
+
+  if (useSandpack) {
+    return (
+      <div
+        className="relative flex h-full w-full flex-col bg-neutral-dark-950 p-4"
+        data-testid="device-preview-sandpack"
+      >
+        <div className="mb-1 flex items-center gap-2 font-mono text-2xs text-neutral-dark-500 tracking-label uppercase">
+          <span>{device}</span>
+          <span>·</span>
+          <span>Sandpack</span>
+        </div>
+        <div className="min-h-0 flex-1">
+          <SandpackPreview files={files} device={device} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative flex h-full w-full items-center justify-center bg-neutral-dark-950 p-4">

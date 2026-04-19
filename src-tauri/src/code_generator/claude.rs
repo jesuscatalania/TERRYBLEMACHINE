@@ -50,6 +50,17 @@ struct LlmFile {
     content: String,
 }
 
+/// Response shape for the refine round-trip. Same fields as
+/// [`LlmResponse`] — kept as a sibling type so a future divergence
+/// (e.g. refine-specific metadata) won't force a hack on the generate
+/// side.
+#[derive(Debug, Deserialize)]
+struct RefineLlmResponse {
+    #[serde(default)]
+    summary: String,
+    files: Vec<LlmFile>,
+}
+
 #[async_trait]
 impl CodeGenerator for ClaudeCodeGenerator {
     async fn generate(&self, input: GenerationInput) -> Result<GeneratedProject, CodeGenError> {
@@ -107,6 +118,119 @@ impl CodeGenerator for ClaudeCodeGenerator {
             prompt,
         })
     }
+
+    async fn refine(
+        &self,
+        project: GeneratedProject,
+        instruction: &str,
+    ) -> Result<(GeneratedProject, Vec<String>), CodeGenError> {
+        let instr = instruction.trim();
+        if instr.is_empty() {
+            return Err(CodeGenError::InvalidInput("instruction is empty".into()));
+        }
+        if project.files.is_empty() {
+            return Err(CodeGenError::InvalidInput(
+                "no current project to refine".into(),
+            ));
+        }
+
+        let current_files_blob = project
+            .files
+            .iter()
+            .map(|f| format!("=== FILE: {} ===\n{}\n", f.path.display(), f.content))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let prompt = format!(
+            "You are refining an existing multi-file project. Below is the CURRENT project state, followed by the user's refinement instruction. Return a STRICT JSON object with this shape:\n\n\
+{{\n  \"summary\": \"brief 1-line description of what you changed\",\n  \"files\": [\n    {{ \"path\": \"path/to/file.ext\", \"content\": \"full new file contents\" }}\n  ]\n}}\n\n\
+Rules:\n- Include ONLY files you modified. Untouched files MUST be omitted.\n- If you delete a file, include it with `\"content\": \"\"` and we will prune empty files after.\n- If the instruction is unclear or contradicts the existing architecture, make the minimal sensible change and proceed.\n- Do NOT wrap your output in markdown fences. Do NOT add preamble or explanation.\n\n\
+CURRENT PROJECT:\n{current_files_blob}\n\n\
+USER INSTRUCTION:\n{instr}\n\n\
+Respond with the JSON object now."
+        );
+
+        let request = AiRequest {
+            id: uuid::Uuid::new_v4().to_string(),
+            task: TaskKind::TextGeneration,
+            priority: Priority::High,
+            complexity: Complexity::Complex,
+            prompt,
+            payload: serde_json::Value::Null,
+            model_override: None,
+        };
+
+        let response = self
+            .client
+            .execute(self.model, &request)
+            .await
+            .map_err(provider_to_gen_err)?;
+
+        let raw = response
+            .output
+            .get("text")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                CodeGenError::ParseResponse(format!(
+                    "response missing `text` field: {:?}",
+                    response.output
+                ))
+            })?;
+
+        let parsed = parse_refine_json(raw)?;
+
+        // Merge returned files back into the project. Empty content = delete.
+        let mut merged = project.files.clone();
+        let mut changed: Vec<String> = Vec::new();
+        for f in parsed.files {
+            let path_buf: std::path::PathBuf = f.path.clone().into();
+            changed.push(f.path);
+            if f.content.is_empty() {
+                merged.retain(|existing| existing.path != path_buf);
+                continue;
+            }
+            if let Some(slot) = merged.iter_mut().find(|e| e.path == path_buf) {
+                slot.content = f.content;
+            } else {
+                merged.push(GeneratedFile {
+                    path: path_buf,
+                    content: f.content,
+                });
+            }
+        }
+
+        let summary = if parsed.summary.is_empty() {
+            project.summary.clone()
+        } else {
+            parsed.summary
+        };
+
+        Ok((
+            GeneratedProject {
+                summary,
+                files: merged,
+                prompt: project.prompt,
+            },
+            changed,
+        ))
+    }
+}
+
+fn parse_refine_json(raw: &str) -> Result<RefineLlmResponse, CodeGenError> {
+    let trimmed = raw.trim();
+    let candidate = if let Some(inside) = extract_fenced_json(trimmed) {
+        inside
+    } else {
+        match trimmed.find('{') {
+            Some(idx) => &trimmed[idx..],
+            None => trimmed,
+        }
+    };
+
+    serde_json::from_str::<RefineLlmResponse>(candidate).map_err(|e| {
+        let preview: String = trimmed.chars().take(400).collect();
+        CodeGenError::ParseResponse(format!("parse: {e} / body: {preview}"))
+    })
 }
 
 /// Extract the JSON body from whatever Claude returned. Handles:
@@ -256,5 +380,127 @@ mod tests {
         let project = gen.generate(input("my prompt")).await.unwrap();
         assert!(project.prompt.contains("my prompt"));
         assert!(project.prompt.contains("Template:"));
+    }
+
+    fn seed_project() -> GeneratedProject {
+        GeneratedProject {
+            summary: "seed".into(),
+            files: vec![
+                GeneratedFile {
+                    path: std::path::PathBuf::from("index.html"),
+                    content: "<h1>Hello</h1>".into(),
+                },
+                GeneratedFile {
+                    path: std::path::PathBuf::from("styles.css"),
+                    content: "body { color: blue; }".into(),
+                },
+            ],
+            prompt: "seed prompt".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn refine_happy_path_merges_changed_files() {
+        let client = Arc::new(MockClient {
+            text: r#"{"summary":"made it red","files":[{"path":"styles.css","content":"body { color: red; }"}]}"#.into(),
+        });
+        let gen = ClaudeCodeGenerator::new(client);
+        let (project, changed) = gen
+            .refine(seed_project(), "make the text red")
+            .await
+            .expect("refine ok");
+        assert_eq!(project.summary, "made it red");
+        assert_eq!(project.files.len(), 2);
+        let css = project
+            .files
+            .iter()
+            .find(|f| f.path.to_str().unwrap() == "styles.css")
+            .unwrap();
+        assert_eq!(css.content, "body { color: red; }");
+        assert_eq!(changed, vec!["styles.css".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn refine_adds_new_files_when_claude_returns_a_fresh_path() {
+        let client = Arc::new(MockClient {
+            text: r##"{"summary":"added readme","files":[{"path":"README.md","content":"# hi"}]}"##
+                .into(),
+        });
+        let gen = ClaudeCodeGenerator::new(client);
+        let (project, changed) = gen.refine(seed_project(), "add a readme").await.unwrap();
+        assert_eq!(project.files.len(), 3);
+        assert!(project
+            .files
+            .iter()
+            .any(|f| f.path.to_str().unwrap() == "README.md"));
+        assert_eq!(changed, vec!["README.md".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn refine_treats_empty_content_as_deletion() {
+        let client = Arc::new(MockClient {
+            text: r#"{"summary":"rm","files":[{"path":"styles.css","content":""}]}"#.into(),
+        });
+        let gen = ClaudeCodeGenerator::new(client);
+        let (project, changed) = gen.refine(seed_project(), "drop css").await.unwrap();
+        assert_eq!(project.files.len(), 1);
+        assert!(project
+            .files
+            .iter()
+            .all(|f| f.path.to_str().unwrap() != "styles.css"));
+        assert_eq!(changed, vec!["styles.css".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn refine_preserves_original_summary_when_response_summary_empty() {
+        let client = Arc::new(MockClient {
+            text: r#"{"summary":"","files":[{"path":"index.html","content":"<h1>Bye</h1>"}]}"#
+                .into(),
+        });
+        let gen = ClaudeCodeGenerator::new(client);
+        let (project, _) = gen.refine(seed_project(), "change").await.unwrap();
+        assert_eq!(project.summary, "seed");
+    }
+
+    #[tokio::test]
+    async fn refine_rejects_empty_instruction() {
+        let client = Arc::new(MockClient { text: "{}".into() });
+        let gen = ClaudeCodeGenerator::new(client);
+        let err = gen.refine(seed_project(), "   ").await.unwrap_err();
+        assert!(matches!(err, CodeGenError::InvalidInput(_)));
+    }
+
+    #[tokio::test]
+    async fn refine_rejects_empty_project() {
+        let client = Arc::new(MockClient { text: "{}".into() });
+        let gen = ClaudeCodeGenerator::new(client);
+        let empty = GeneratedProject {
+            summary: "".into(),
+            files: vec![],
+            prompt: "".into(),
+        };
+        let err = gen.refine(empty, "do stuff").await.unwrap_err();
+        assert!(matches!(err, CodeGenError::InvalidInput(_)));
+    }
+
+    #[tokio::test]
+    async fn refine_malformed_json_yields_parse_error() {
+        let client = Arc::new(MockClient {
+            text: "no json whatsoever".into(),
+        });
+        let gen = ClaudeCodeGenerator::new(client);
+        let err = gen.refine(seed_project(), "x").await.unwrap_err();
+        assert!(matches!(err, CodeGenError::ParseResponse(_)));
+    }
+
+    #[tokio::test]
+    async fn refine_handles_fenced_json_response() {
+        let client = Arc::new(MockClient {
+            text: "Sure:\n```json\n{\"summary\":\"ok\",\"files\":[]}\n```".into(),
+        });
+        let gen = ClaudeCodeGenerator::new(client);
+        let (project, changed) = gen.refine(seed_project(), "anything").await.unwrap();
+        assert_eq!(project.summary, "ok");
+        assert!(changed.is_empty());
     }
 }

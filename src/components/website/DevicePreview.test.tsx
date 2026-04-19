@@ -1,5 +1,12 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// Stub Sandpack so the test for JSX routing doesn't try to boot the
+// real in-browser bundler under jsdom.
+vi.mock("@codesandbox/sandpack-react", () => ({
+  Sandpack: () => <div data-testid="sandpack-stub" />,
+}));
+
 import { composeHtml, DevicePreview } from "@/components/website/DevicePreview";
 
 const html = (content: string) => ({ path: "index.html", content });
@@ -39,5 +46,16 @@ describe("DevicePreview", () => {
     expect(screen.getByTestId("device-preview-iframe")).toBeInTheDocument();
     expect(screen.getByText(/mobile/i)).toBeInTheDocument();
     expect(screen.getByText(/375px/)).toBeInTheDocument();
+  });
+
+  it("routes .jsx projects to Sandpack instead of the iframe", () => {
+    render(
+      <DevicePreview
+        files={[{ path: "src/App.jsx", content: "export default () => null;" }]}
+        device="desktop"
+      />,
+    );
+    expect(screen.getByTestId("device-preview-sandpack")).toBeInTheDocument();
+    expect(screen.queryByTestId("device-preview-iframe")).not.toBeInTheDocument();
   });
 });

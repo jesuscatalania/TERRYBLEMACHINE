@@ -1,4 +1,4 @@
-import { Laptop, Smartphone, Tablet } from "lucide-react";
+import { ExternalLink, Laptop, Smartphone, Tablet } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
@@ -24,6 +24,8 @@ import {
   type GeneratedProject,
   generateWebsite,
   modifyCodeSelection,
+  openInBrowser,
+  refineWebsite,
   type Template,
 } from "@/lib/websiteCommands";
 import { useProjectStore } from "@/stores/projectStore";
@@ -52,6 +54,8 @@ export function WebsiteBuilderPage() {
   // "auto" = let the router strategy pick. Otherwise a PascalCase Model
   // enum string from the ToolDropdown (or resolved from a `/tool` slug).
   const [model, setModel] = useState<string>("auto");
+  const [refineInput, setRefineInput] = useState("");
+  const [refineBusy, setRefineBusy] = useState(false);
   const optimize = useOptimizePrompt({
     taskKind: "TextGeneration",
     value: prompt,
@@ -259,6 +263,27 @@ export function WebsiteBuilderPage() {
             Generated files are editable live in the preview below.
           </span>
           <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={async () => {
+                if (!project) return;
+                try {
+                  await openInBrowser(project);
+                  notify({ kind: "success", message: "Im Browser geöffnet" });
+                } catch (err) {
+                  notify({
+                    kind: "error",
+                    message: "Konnte Browser nicht öffnen",
+                    detail: formatError(err),
+                  });
+                }
+              }}
+              disabled={!project}
+            >
+              <ExternalLink className="h-3 w-3" strokeWidth={1.5} aria-hidden="true" />
+              Im Browser öffnen
+            </Button>
             <LoadingButton
               variant="secondary"
               onClick={() => setExportOpen(true)}
@@ -325,6 +350,59 @@ export function WebsiteBuilderPage() {
               </div>
             )}
           </div>
+          {project ? (
+            <div
+              className="flex flex-col gap-2 border-neutral-dark-700 border-t p-4"
+              data-testid="refine-panel"
+            >
+              <span className="font-mono text-2xs text-neutral-dark-400 tracking-label uppercase">
+                Refine — weitere Änderungen
+              </span>
+              <div className="flex items-end gap-2">
+                <div className="flex-1">
+                  <Textarea
+                    id="website-refine-input"
+                    aria-label="Refine instruction"
+                    value={refineInput}
+                    onValueChange={setRefineInput}
+                    placeholder="Mach den Planeten rot, entferne den Header, füge Scroll-Animation hinzu…"
+                    rows={2}
+                  />
+                </div>
+                <LoadingButton
+                  variant="primary"
+                  onClick={async () => {
+                    if (!project || !refineInput.trim()) return;
+                    setRefineBusy(true);
+                    try {
+                      const result = await refineWebsite(project, refineInput.trim());
+                      setProject(result.project);
+                      setRefineInput("");
+                      const count = result.changed_paths.length;
+                      const headPaths = result.changed_paths.slice(0, 3).join(", ");
+                      notify({
+                        kind: "success",
+                        message: "Projekt aktualisiert",
+                        detail: `${count} file${count === 1 ? "" : "s"}${headPaths ? `: ${headPaths}` : ""}`,
+                      });
+                    } catch (err) {
+                      notify({
+                        kind: "error",
+                        message: "Refine fehlgeschlagen",
+                        detail: formatError(err),
+                      });
+                    } finally {
+                      setRefineBusy(false);
+                    }
+                  }}
+                  disabled={!refineInput.trim()}
+                  loading={refineBusy}
+                >
+                  Refine
+                </LoadingButton>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 

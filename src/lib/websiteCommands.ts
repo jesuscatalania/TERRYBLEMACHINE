@@ -100,3 +100,36 @@ export function modifyCodeSelection(
 ): Promise<ModifyCodeSelectionOutput> {
   return invoke<ModifyCodeSelectionOutput>("modify_code_selection", { req });
 }
+
+// ─── Open in system default browser ────────────────────────────────────
+
+/**
+ * Writes the given project out to a fresh temp directory and opens its
+ * `index.html` in the system default browser. Returns the `file://` URL
+ * that was opened (handy for toasts/logs).
+ */
+export function openInBrowser(project: GeneratedProject): Promise<string> {
+  return invoke<string>("open_project_in_browser", { project });
+}
+
+// ─── Refine flow ───────────────────────────────────────────────────────
+
+export interface RefineResult {
+  project: GeneratedProject;
+  changed_paths: string[];
+}
+
+/**
+ * Iteratively refine an existing project with a free-text instruction.
+ * The backend sends the full current project + the instruction to Claude;
+ * Claude returns only the files that changed (empty content = deletion)
+ * and the backend merges them on top of the current file set.
+ */
+export function refineWebsite(
+  project: GeneratedProject,
+  instruction: string,
+): Promise<RefineResult> {
+  return invoke<RefineResult>("refine_website", {
+    input: { project, instruction },
+  });
+}

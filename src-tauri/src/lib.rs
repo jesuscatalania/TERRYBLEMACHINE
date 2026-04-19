@@ -287,6 +287,8 @@ pub fn run() {
             code_generator::commands::generate_website,
             code_generator::assist::modify_code_selection,
             code_generator::optimize::optimize_prompt,
+            code_generator::preview::open_project_in_browser,
+            code_generator::refine::refine_website,
             storyboard_generator::commands::generate_storyboard,
             exporter::commands::export_website,
             image_pipeline::commands::text_to_image,
