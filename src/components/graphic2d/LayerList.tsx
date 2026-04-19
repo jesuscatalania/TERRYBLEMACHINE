@@ -1,5 +1,6 @@
 import { Eye, EyeOff, Lock, Trash2, Unlock } from "lucide-react";
 import type { FabricLayer } from "@/components/graphic2d/FabricCanvas";
+import { Tooltip } from "@/components/ui/Tooltip";
 
 export interface LayerListProps {
   layers: readonly FabricLayer[];
@@ -36,30 +37,34 @@ export function LayerList({
               selected ? "bg-neutral-dark-800/70" : "hover:bg-neutral-dark-800/40"
             }`}
           >
-            <button
-              type="button"
-              onClick={() => onToggleVisible(layer.id)}
-              aria-label={layer.visible ? "Hide" : "Show"}
-              className="text-neutral-dark-400 hover:text-neutral-dark-100"
-            >
-              {layer.visible ? (
-                <Eye className="h-3 w-3" strokeWidth={1.5} />
-              ) : (
-                <EyeOff className="h-3 w-3" strokeWidth={1.5} />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => onToggleLock(layer.id)}
-              aria-label={layer.locked ? "Unlock" : "Lock"}
-              className="text-neutral-dark-400 hover:text-neutral-dark-100"
-            >
-              {layer.locked ? (
-                <Lock className="h-3 w-3" strokeWidth={1.5} />
-              ) : (
-                <Unlock className="h-3 w-3" strokeWidth={1.5} />
-              )}
-            </button>
+            <Tooltip content={layer.visible ? "Hide layer" : "Show layer"}>
+              <button
+                type="button"
+                onClick={() => onToggleVisible(layer.id)}
+                aria-label={layer.visible ? "Hide" : "Show"}
+                className="text-neutral-dark-400 hover:text-neutral-dark-100"
+              >
+                {layer.visible ? (
+                  <Eye className="h-3 w-3" strokeWidth={1.5} />
+                ) : (
+                  <EyeOff className="h-3 w-3" strokeWidth={1.5} />
+                )}
+              </button>
+            </Tooltip>
+            <Tooltip content={layer.locked ? "Unlock layer" : "Lock layer"}>
+              <button
+                type="button"
+                onClick={() => onToggleLock(layer.id)}
+                aria-label={layer.locked ? "Unlock" : "Lock"}
+                className="text-neutral-dark-400 hover:text-neutral-dark-100"
+              >
+                {layer.locked ? (
+                  <Lock className="h-3 w-3" strokeWidth={1.5} />
+                ) : (
+                  <Unlock className="h-3 w-3" strokeWidth={1.5} />
+                )}
+              </button>
+            </Tooltip>
             <button
               type="button"
               onClick={() => onSelect(layer.id)}
@@ -69,14 +74,16 @@ export function LayerList({
             >
               {layer.label}
             </button>
-            <button
-              type="button"
-              onClick={() => onRemove(layer.id)}
-              aria-label="Remove"
-              className="text-neutral-dark-400 hover:text-rose-400"
-            >
-              <Trash2 className="h-3 w-3" strokeWidth={1.5} />
-            </button>
+            <Tooltip content="Remove layer">
+              <button
+                type="button"
+                onClick={() => onRemove(layer.id)}
+                aria-label="Remove"
+                className="text-neutral-dark-400 hover:text-rose-400"
+              >
+                <Trash2 className="h-3 w-3" strokeWidth={1.5} />
+              </button>
+            </Tooltip>
           </li>
         );
       })}

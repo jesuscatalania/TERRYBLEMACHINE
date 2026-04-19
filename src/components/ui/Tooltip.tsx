@@ -12,6 +12,12 @@ export interface TooltipProps {
   openDelay?: number;
   /** ms before hiding after unhover. Defaults to 80. */
   closeDelay?: number;
+  /**
+   * Extra classes for the wrapping `<span>`. Default is
+   * `"relative inline-flex"`. Pass e.g. `"relative block w-full"` when
+   * the trigger needs to stretch (sidebar items, full-width rows).
+   */
+  wrapperClassName?: string;
 }
 
 const POSITION: Record<TooltipSide, string> = {
@@ -27,6 +33,7 @@ export function Tooltip({
   side = "top",
   openDelay = 200,
   closeDelay = 80,
+  wrapperClassName = "relative inline-flex",
 }: TooltipProps) {
   const [open, setOpen] = useState(false);
   const openTimer = useRef<number | null>(null);
@@ -58,7 +65,7 @@ export function Tooltip({
   });
 
   return (
-    <span className="relative inline-flex">
+    <span className={wrapperClassName}>
       {cloned}
       <AnimatePresence>
         {open ? (

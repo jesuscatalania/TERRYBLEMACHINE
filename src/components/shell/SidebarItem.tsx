@@ -1,3 +1,4 @@
+import type { FocusEventHandler, MouseEventHandler } from "react";
 import { Kbd } from "@/components/shell/Kbd";
 import { ModuleIcon } from "@/components/shell/ModuleIcon";
 import type { ModuleId } from "@/stores/appStore";
@@ -10,6 +11,16 @@ export interface SidebarItemProps {
   active: boolean;
   collapsed?: boolean;
   onSelect: (id: ModuleId) => void;
+  /**
+   * Tooltip integration — Tooltip clones its single child and injects
+   * these four handlers to drive show/hide. We forward them onto the
+   * underlying `<button>` so wrapping `<Tooltip><SidebarItem/></Tooltip>`
+   * wires up without an extra DOM node.
+   */
+  onMouseEnter?: MouseEventHandler<HTMLButtonElement>;
+  onMouseLeave?: MouseEventHandler<HTMLButtonElement>;
+  onFocus?: FocusEventHandler<HTMLButtonElement>;
+  onBlur?: FocusEventHandler<HTMLButtonElement>;
 }
 
 export function SidebarItem({
@@ -20,6 +31,10 @@ export function SidebarItem({
   active,
   collapsed = false,
   onSelect,
+  onMouseEnter,
+  onMouseLeave,
+  onFocus,
+  onBlur,
 }: SidebarItemProps) {
   const baseLayout = collapsed
     ? "grid-cols-[1fr] justify-items-center px-0"
@@ -37,6 +52,10 @@ export function SidebarItem({
       title={collapsed ? label : undefined}
       className={`${base} ${state}`}
       onClick={() => onSelect(moduleId)}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      onFocus={onFocus}
+      onBlur={onBlur}
     >
       <ModuleIcon moduleId={moduleId} className="justify-self-center" />
       {!collapsed && (

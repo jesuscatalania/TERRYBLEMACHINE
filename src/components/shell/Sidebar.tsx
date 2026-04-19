@@ -3,6 +3,7 @@ import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { MODULES } from "@/components/shell/modules";
 import { SidebarItem } from "@/components/shell/SidebarItem";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { useKeyboardShortcut } from "@/hooks/useKeyboardShortcut";
 import { moduleToPath } from "@/lib/moduleRoutes";
 import type { ModuleId } from "@/stores/appStore";
@@ -106,16 +107,22 @@ export function Sidebar() {
       {sidebarOpen && <SectionLabel>Modules</SectionLabel>}
       <nav aria-label="Modules" className={`flex flex-col ${sidebarOpen ? "" : "pt-2"}`}>
         {MODULES.map((m) => (
-          <SidebarItem
+          <Tooltip
             key={m.id}
-            moduleId={m.id}
-            label={m.label}
-            index={m.index}
-            shortcut={m.shortcut}
-            active={m.id === activeModule}
-            collapsed={!sidebarOpen}
-            onSelect={selectModule}
-          />
+            content={`${m.label} (${m.shortcut})`}
+            side="right"
+            wrapperClassName="relative block"
+          >
+            <SidebarItem
+              moduleId={m.id}
+              label={m.label}
+              index={m.index}
+              shortcut={m.shortcut}
+              active={m.id === activeModule}
+              collapsed={!sidebarOpen}
+              onSelect={selectModule}
+            />
+          </Tooltip>
         ))}
       </nav>
 
@@ -143,18 +150,20 @@ export function Sidebar() {
         }`}
       >
         {sidebarOpen && <span className="font-mono text-2xs text-neutral-dark-400">v0.1.0</span>}
-        <button
-          type="button"
-          onClick={toggleSidebar}
-          aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-          className="grid h-5 w-5 place-items-center rounded-xs border border-neutral-dark-600 text-neutral-dark-400 hover:border-neutral-dark-500 hover:text-neutral-dark-100"
-        >
-          {sidebarOpen ? (
-            <ChevronLeft className="h-3 w-3" strokeWidth={1.6} />
-          ) : (
-            <ChevronRight className="h-3 w-3" strokeWidth={1.6} />
-          )}
-        </button>
+        <Tooltip content={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"} side="right">
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+            className="grid h-5 w-5 place-items-center rounded-xs border border-neutral-dark-600 text-neutral-dark-400 hover:border-neutral-dark-500 hover:text-neutral-dark-100"
+          >
+            {sidebarOpen ? (
+              <ChevronLeft className="h-3 w-3" strokeWidth={1.6} />
+            ) : (
+              <ChevronRight className="h-3 w-3" strokeWidth={1.6} />
+            )}
+          </button>
+        </Tooltip>
       </div>
     </aside>
   );

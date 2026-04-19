@@ -1,6 +1,7 @@
 import { Heart } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { Tooltip } from "@/components/ui/Tooltip";
 import type { LogoVariant } from "@/lib/logoCommands";
 import { useLogoStore } from "@/stores/logoStore";
 
@@ -74,16 +75,18 @@ export function LogoGallery({ variants, selectedUrl, onSelect }: LogoGalleryProp
                 >
                   <img src={v.url} alt="" className="h-full w-full object-contain" />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => toggleFavorite(v.url)}
-                  aria-label={fav ? "Unfavorite" : "Favorite"}
-                  className="absolute top-1 right-1 rounded-full bg-neutral-dark-950/80 p-1"
-                >
-                  <Heart
-                    className={`h-3 w-3 ${fav ? "fill-accent-500 text-accent-500" : "text-neutral-dark-400"}`}
-                  />
-                </button>
+                <Tooltip content={fav ? "Remove from favorites" : "Add to favorites"}>
+                  <button
+                    type="button"
+                    onClick={() => toggleFavorite(v.url)}
+                    aria-label={fav ? "Unfavorite" : "Favorite"}
+                    className="absolute top-1 right-1 rounded-full bg-neutral-dark-950/80 p-1"
+                  >
+                    <Heart
+                      className={`h-3 w-3 ${fav ? "fill-accent-500 text-accent-500" : "text-neutral-dark-400"}`}
+                    />
+                  </button>
+                </Tooltip>
               </div>
             );
           })}
