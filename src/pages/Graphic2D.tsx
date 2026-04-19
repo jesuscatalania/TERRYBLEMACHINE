@@ -14,6 +14,7 @@ import { LayerList } from "@/components/graphic2d/LayerList";
 import { TextControls } from "@/components/graphic2d/TextControls";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
+import { HelpIcon } from "@/components/ui/HelpIcon";
 import { Input } from "@/components/ui/Input";
 import { LoadingButton } from "@/components/ui/LoadingButton";
 import { generateVariants, type ImageResult, inpaintImage, isDataUrl } from "@/lib/imageCommands";
@@ -383,8 +384,9 @@ export function Graphic2DPage() {
           ) : null}
 
           <div className="mt-2 flex flex-col gap-2">
-            <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
+            <span className="inline-flex items-center gap-1.5 font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
               Filter
+              <HelpIcon content="Select an image layer, then drag to apply. Negative values soften, positive values strengthen the effect." />
             </span>
             <Dropdown
               value={filter}

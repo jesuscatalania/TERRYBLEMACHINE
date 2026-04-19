@@ -15,6 +15,7 @@ import {
   type ThreeExportSettings,
 } from "@/components/graphic3d/ThreeExportDialog";
 import { Button } from "@/components/ui/Button";
+import { HelpIcon } from "@/components/ui/HelpIcon";
 import { Input } from "@/components/ui/Input";
 import { LoadingButton } from "@/components/ui/LoadingButton";
 import { type DepthResult, generateDepth } from "@/lib/depthCommands";
@@ -403,7 +404,10 @@ export function Graphic3DPage() {
                   {depthResult.model}
                 </span>
                 <label className="flex flex-col gap-1 text-2xs text-neutral-dark-200">
-                  Displacement: {displacementScale.toFixed(2)}
+                  <span className="inline-flex items-center gap-1.5">
+                    Displacement: {displacementScale.toFixed(2)}
+                    <HelpIcon content="Controls how strongly the depth map pushes pixels. 0 = flat image, higher = more dramatic pseudo-3D." />
+                  </span>
                   <input
                     type="range"
                     min={0}

@@ -16,7 +16,7 @@ describe("TextLogoControls", () => {
     expect(screen.getByLabelText(/font/i)).toHaveValue("Inter");
     expect((screen.getByLabelText(/color/i) as HTMLInputElement).value).toBe("#f7f7f8");
     expect((screen.getByLabelText(/size/i) as HTMLInputElement).value).toBe("72");
-    expect((screen.getByLabelText(/kerning/i) as HTMLInputElement).value).toBe("0");
+    expect((screen.getByRole("slider", { name: /kerning/i }) as HTMLInputElement).value).toBe("0");
   });
 
   it("fires onChange with font patch (after font load resolves)", async () => {
@@ -48,7 +48,7 @@ describe("TextLogoControls", () => {
   it("fires onChange with kerning patch", () => {
     const onChange = vi.fn();
     render(<TextLogoControls value={BASE} onChange={onChange} />);
-    fireEvent.change(screen.getByLabelText(/kerning/i), {
+    fireEvent.change(screen.getByRole("slider", { name: /kerning/i }), {
       target: { value: "5.5" },
     });
     expect(onChange).toHaveBeenCalledWith({ ...BASE, kerning: 5.5 });

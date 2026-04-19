@@ -1,3 +1,4 @@
+import { HelpIcon } from "@/components/ui/HelpIcon";
 import { GOOGLE_FONTS, type GoogleFont, injectGoogleFont } from "@/lib/googleFonts";
 
 /**
@@ -71,7 +72,10 @@ export function TextLogoControls({ value, onChange }: TextLogoControlsProps) {
         />
       </label>
       <label className="flex flex-col gap-1 text-2xs text-neutral-dark-300">
-        Kerning: {value.kerning.toFixed(1)}
+        <span className="inline-flex items-center gap-1.5">
+          Kerning: {value.kerning.toFixed(1)}
+          <HelpIcon content="Adjusts space between characters (px). Negative values tighten letters." />
+        </span>
         <input
           aria-label="Kerning"
           type="range"

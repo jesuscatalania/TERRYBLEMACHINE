@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
+import { HelpIcon } from "@/components/ui/HelpIcon";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 
@@ -104,7 +105,10 @@ export function ThreeExportDialog({ open, onClose, onExport }: ThreeExportDialog
               htmlFor="three-export-quality"
               className="flex items-center justify-between font-mono text-2xs text-neutral-dark-400 uppercase tracking-label"
             >
-              <span>Quality</span>
+              <span className="inline-flex items-center gap-1.5">
+                Quality
+                <HelpIcon content="Higher = cleaner output, larger file. 85-95 is a good balance for most uses." />
+              </span>
               <span className="text-accent-500 tabular-nums">{quality}%</span>
             </label>
             <input
