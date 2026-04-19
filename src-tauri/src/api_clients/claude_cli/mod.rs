@@ -3,3 +3,4 @@
 //! API credits. See `docs/superpowers/plans/2026-04-19-phase-9-claude-bridge-and-tool-ux.md`.
 
 pub mod discovery;
+pub mod stream_parser;
