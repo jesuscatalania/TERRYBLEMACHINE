@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { WelcomeModal } from "@/components/onboarding/WelcomeModal";
 import { NewProjectDialog } from "@/components/projects/NewProjectDialog";
 import { Shell } from "@/components/shell/Shell";
 import { Toaster } from "@/components/ui/Toast";
@@ -81,6 +82,7 @@ function App() {
         onCreate={handleCreate}
         defaultModule={activeModule}
       />
+      <WelcomeModal />
       <Toaster />
     </>
   );
