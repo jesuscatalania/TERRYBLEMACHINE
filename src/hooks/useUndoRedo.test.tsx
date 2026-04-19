@@ -1,17 +1,21 @@
 import { render } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useGlobalKeyboardDispatch } from "@/hooks/useGlobalKeyboardDispatch";
 import { useUndoRedo } from "@/hooks/useUndoRedo";
 import { useHistoryStore } from "@/stores/historyStore";
+import { useKeyboardStore } from "@/stores/keyboardStore";
 
 function Probe() {
   useUndoRedo();
+  useGlobalKeyboardDispatch();
   return <div>probe</div>;
 }
 
 describe("useUndoRedo", () => {
   beforeEach(() => {
     useHistoryStore.setState({ past: [], future: [] });
+    useKeyboardStore.setState({ entries: new Map() });
   });
 
   it("Cmd+Z calls undo, Cmd+Shift+Z calls redo", async () => {
@@ -37,6 +41,7 @@ describe("useUndoRedo", () => {
 
     function Harness() {
       useUndoRedo();
+      useGlobalKeyboardDispatch();
       return <input aria-label="field" defaultValue="" />;
     }
     const { getByLabelText } = render(<Harness />);
