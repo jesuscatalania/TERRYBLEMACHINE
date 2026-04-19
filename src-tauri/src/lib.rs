@@ -29,7 +29,7 @@ use api_clients::claude_cli_commands::{
 use brand_kit::commands::BrandKitState;
 use brand_kit::{BrandKitBuilder, StandardBrandKit};
 use code_generator::commands::CodeGeneratorState;
-use code_generator::{CodeGenerator, StubCodeGenerator};
+use code_generator::{ClaudeCodeGenerator, CodeGenerator};
 use depth_pipeline::commands::DepthPipelineState;
 use depth_pipeline::{DepthPipeline, RouterDepthPipeline};
 use image_pipeline::commands::ImagePipelineState;
@@ -62,6 +62,14 @@ pub fn run() {
     // the keychain at execute time; missing keys surface as Auth errors and
     // the router's fallback chain picks the next provider.
     let clients = api_clients::registry::build_default_clients(keystore.clone());
+    // Snag a direct handle on the Claude client before we move `clients`
+    // into the router — the ClaudeCodeGenerator (website builder backend)
+    // dispatches straight to Claude without going through router fallbacks,
+    // since code-gen has no meaningful alternative provider.
+    let claude_client_for_codegen = clients
+        .get(&ai_router::Provider::Claude)
+        .cloned()
+        .expect("Claude client always registered by build_default_clients");
     let ai_router = Arc::new(AiRouter::new(
         Arc::new(DefaultRoutingStrategy),
         clients,
@@ -140,10 +148,13 @@ pub fn run() {
             let analyzer: Arc<dyn UrlAnalyzer> = Arc::new(PlaywrightUrlAnalyzer::new(script_path));
             app.manage(WebsiteAnalyzerState::new(analyzer));
 
-            // Code generator — default to the deterministic stub until the
-            // frontend wires a real Claude key through. Swapping in
-            // ClaudeCodeGenerator requires an AiClient + keychain lookup.
-            let generator: Arc<dyn CodeGenerator> = Arc::new(StubCodeGenerator::new());
+            // Code generator — dispatches through the registered Claude
+            // client (CLI-subscription or HTTP-API per user transport
+            // choice) and enriches prompts with the live taste profile.
+            let generator: Arc<dyn CodeGenerator> = Arc::new(
+                ClaudeCodeGenerator::new(Arc::clone(&claude_client_for_codegen))
+                    .with_taste_engine(Arc::clone(&engine)),
+            );
             app.manage(CodeGeneratorState::new(generator));
 
             // Storyboard generator — routes through the shared AiRouter
