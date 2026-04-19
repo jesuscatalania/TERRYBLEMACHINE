@@ -1,11 +1,15 @@
 //! End-to-end tests for [`RouterVideoPipeline`].
 //!
 //! Mirrors `mesh_pipeline_integration.rs` but exercises the MP4-download
-//! step: we write a tiny fake MP4 to a tempdir, build a fake Kling client
-//! that echoes back a `file://…` URL pointing at it, and let
+//! step: we write a tiny fake MP4 to a tempdir, build a fake fal-Kling
+//! client that echoes back a `file://…` URL pointing at it, and let
 //! `RouterVideoPipeline` pull it through the router → download path →
 //! cache dir. The `file://` special-case inside `download_to_cache` lets
 //! us verify the full pipeline without a mock HTTP server.
+//!
+//! Under the default routing chain (Variante A), video primary is
+//! `Model::FalKlingV2Master` on `Provider::Fal` — hence we register the
+//! stub under `Provider::Fal` instead of `Provider::Kling`.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -22,23 +26,24 @@ use terryblemachine_lib::video_pipeline::{
     RouterVideoPipeline, VideoImageInput, VideoPipeline, VideoPipelineError, VideoTextInput,
 };
 
-/// Fake Kling client that echoes a predetermined `video_url` back inside
-/// the router response. We use a `file://` URL so the pipeline's download
-/// step stays local to this test. Captures the most recent `AiRequest` so
-/// tests can assert routing inputs (task, payload, duration, …).
-struct StubKlingClient {
+/// Fake fal-Kling client that echoes a predetermined `video_url` back
+/// inside the router response. We use a `file://` URL so the pipeline's
+/// download step stays local to this test. Captures the most recent
+/// `AiRequest` so tests can assert routing inputs (task, payload,
+/// duration, …).
+struct StubFalKlingClient {
     video_url_to_echo: String,
     last_request: Arc<Mutex<Option<AiRequest>>>,
 }
 
 #[async_trait]
-impl AiClient for StubKlingClient {
+impl AiClient for StubFalKlingClient {
     fn provider(&self) -> Provider {
-        Provider::Kling
+        Provider::Fal
     }
 
     fn supports(&self, m: Model) -> bool {
-        matches!(m, Model::Kling20)
+        matches!(m, Model::FalKlingV15 | Model::FalKlingV2Master)
     }
 
     async fn execute(
@@ -85,8 +90,8 @@ fn pipeline_with_capture(
 
     let mut clients: HashMap<Provider, Arc<dyn AiClient>> = HashMap::new();
     clients.insert(
-        Provider::Kling,
-        Arc::new(StubKlingClient {
+        Provider::Fal,
+        Arc::new(StubFalKlingClient {
             video_url_to_echo: file_url,
             last_request: Arc::clone(&kling_capture),
         }),
@@ -130,7 +135,7 @@ async fn text_to_video_downloads_to_cache() {
         local.extension().map(|e| e == "mp4").unwrap_or(false),
         "cache path should end in .mp4, got {local:?}"
     );
-    assert_eq!(r.model, format!("{:?}", Model::Kling20));
+    assert_eq!(r.model, format!("{:?}", Model::FalKlingV2Master));
     assert_eq!(
         r.duration_s,
         Some(5.0),
