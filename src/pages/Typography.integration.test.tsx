@@ -49,6 +49,27 @@ afterEach(() => {
 });
 
 describe("TypographyPage integration", () => {
+  // BACKLOG #177: ABI sanity — the named exports we mock above must exist on
+  // the real `*Commands.ts` modules. If a wrapper is renamed or removed, the
+  // mocks would silently never be invoked and the happy-path test below could
+  // pass for the wrong reason. `vi.importActual` bypasses the `vi.mock` and
+  // returns the actual module so we can assert the real wrapper names exist.
+  // This doesn't fully close the ABI gap (it doesn't assert that wrappers call
+  // `invoke` with the right Tauri command name) — the Playwright spec
+  // `e2e/tests/typography.spec.ts` is the real end-to-end coverage; this is
+  // belt-and-suspenders to catch the most common drift (wrapper rename).
+  it("ABI sanity: Typography flow's mocked wrapper names exist on the real modules", async () => {
+    const logo = await vi.importActual<typeof import("@/lib/logoCommands")>("@/lib/logoCommands");
+    const vec = await vi.importActual<typeof import("@/lib/vectorizerCommands")>(
+      "@/lib/vectorizerCommands",
+    );
+    const bk =
+      await vi.importActual<typeof import("@/lib/brandKitCommands")>("@/lib/brandKitCommands");
+    expect(typeof logo.generateLogoVariants).toBe("function");
+    expect(typeof vec.vectorizeImage).toBe("function");
+    expect(typeof bk.exportBrandKit).toBe("function");
+  });
+
   it("walks Generate → select → Vectorize → Export → brand kit success toast", async () => {
     const user = userEvent.setup();
     const variants: LogoVariant[] = [
