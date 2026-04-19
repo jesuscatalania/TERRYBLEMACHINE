@@ -31,6 +31,15 @@ export async function installInvokeMock(page: Page, mock: InvokeMock): Promise<v
       }
       return map[cmd];
     };
+    // Pre-dismiss the Welcome modal so it doesn't intercept clicks in every
+    // E2E test. The dedicated welcome.spec clears this key explicitly to
+    // exercise the onboarding flow.
+    try {
+      window.localStorage.setItem("tm:welcome:dismissed", "true");
+    } catch {
+      // localStorage may be unavailable in some pre-navigation contexts; the
+      // modal will then surface and the spec can dismiss it manually.
+    }
   }, serialized);
 }
 
