@@ -57,6 +57,61 @@ jobs:
       - name: Run tests
         run: pnpm test
 
+  coverage:
+    name: Coverage
+    runs-on: macos-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Frontend coverage
+        run: pnpm test:coverage
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --version 0.6.18 --locked
+
+      - name: Backend coverage
+        working-directory: src-tauri
+        run: cargo llvm-cov --workspace --lcov --output-path ../coverage/backend.lcov
+
+      - name: Coverage summary
+        run: |
+          echo "## Coverage report" >> $GITHUB_STEP_SUMMARY
+          echo "Frontend lcov: \`coverage/lcov.info\` (artifact)" >> $GITHUB_STEP_SUMMARY
+          echo "Backend lcov: \`coverage/backend.lcov\` (artifact)" >> $GITHUB_STEP_SUMMARY
+          echo "Soft-gate: see docs/TESTING.md for the ≥80% target on critical paths." >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            coverage/
+            !coverage/tmp/
+          retention-days: 14
+
   build:
     name: Build (Tauri)
     runs-on: macos-latest
