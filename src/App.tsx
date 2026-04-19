@@ -4,6 +4,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { WelcomeModal } from "@/components/onboarding/WelcomeModal";
 import { NewProjectDialog } from "@/components/projects/NewProjectDialog";
 import { Shell } from "@/components/shell/Shell";
+import { ShortcutHelpOverlay } from "@/components/shell/ShortcutHelpOverlay";
 import { Toaster } from "@/components/ui/Toast";
 import { useBudgetPoll } from "@/hooks/useBudgetPoll";
 import { useGlobalKeyboardDispatch } from "@/hooks/useGlobalKeyboardDispatch";
@@ -70,6 +71,24 @@ function App() {
     label: "New project",
   });
 
+  const [helpOpen, setHelpOpen] = useState(false);
+  const toggleHelp = useCallback(() => setHelpOpen((v) => !v), []);
+  useKeyboardShortcut({
+    id: "global:help",
+    combo: "Mod+/",
+    handler: toggleHelp,
+    scope: "global",
+    label: "Keyboard shortcuts",
+  });
+  useKeyboardShortcut({
+    id: "global:help-q",
+    combo: "?",
+    handler: toggleHelp,
+    scope: "global",
+    label: "Keyboard shortcuts (?)",
+  });
+  const closeHelp = useCallback(() => setHelpOpen(false), []);
+
   const handleCreate = useCallback(
     async (input: NewProjectInput) => {
       const created = await createProjectCommand(input);
@@ -95,6 +114,7 @@ function App() {
         defaultModule={activeModule}
       />
       <WelcomeModal />
+      <ShortcutHelpOverlay open={helpOpen} onClose={closeHelp} />
       <Toaster />
     </>
   );
