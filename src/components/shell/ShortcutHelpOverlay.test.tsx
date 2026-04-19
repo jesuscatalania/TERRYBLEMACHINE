@@ -35,6 +35,14 @@ describe("ShortcutHelpOverlay", () => {
     expect(screen.getByText("Mod+Z")).toBeInTheDocument();
   });
 
+  it("lists tool overrides section", () => {
+    render(<ShortcutHelpOverlay open={true} onClose={() => {}} />);
+    expect(screen.getByText(/Tool overrides/i)).toBeInTheDocument();
+    expect(screen.getByText("/flux")).toBeInTheDocument();
+    expect(screen.getByText("/kling")).toBeInTheDocument();
+    expect(screen.getByText("/ideogram")).toBeInTheDocument();
+  });
+
   it("orders scope groups by priority (page → module → global) regardless of registration order", () => {
     // Register in reverse priority order — global first, then module,
     // then page. After sorting, the rendered DOM order should be the

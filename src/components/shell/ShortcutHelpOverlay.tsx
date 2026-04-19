@@ -1,4 +1,5 @@
 import { Modal } from "@/components/ui/Modal";
+import { OVERRIDE_ALIASES } from "@/lib/promptOverride";
 import type { ShortcutScope } from "@/stores/keyboardStore";
 import { useKeyboardStore } from "@/stores/keyboardStore";
 
@@ -76,6 +77,24 @@ export function ShortcutHelpOverlay({ open, onClose }: ShortcutHelpOverlayProps)
             </ul>
           </div>
         ))}
+        <div className="flex flex-col gap-2">
+          <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
+            Tool overrides (use at start or end of prompt)
+          </span>
+          <ul className="grid grid-cols-2 gap-x-4 gap-y-1">
+            {Object.entries(OVERRIDE_ALIASES).map(([slug, model]) => (
+              <li
+                key={slug}
+                className="flex items-center justify-between text-2xs text-neutral-dark-200"
+              >
+                <kbd className="rounded-xs border border-neutral-dark-700 bg-neutral-dark-900 px-1.5 py-0.5 font-mono text-2xs text-accent-500">
+                  /{slug}
+                </kbd>
+                <span className="font-mono text-2xs text-neutral-dark-400">{model}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
     </Modal>
   );
