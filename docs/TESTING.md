@@ -38,7 +38,7 @@ Specs live under `e2e/tests/`. The `e2e/fixtures/invoke-mock.ts` fixture patches
 
 ## CI
 
-`.github/workflows/ci.yml` runs four jobs: `lint`, `test`, `coverage`, `e2e`, `build`. Coverage and e2e upload artifacts (lcov, Playwright trace) for inspection.
+`.github/workflows/ci.yml` runs five jobs: `lint`, `test`, `coverage`, `e2e`, `build`. Coverage and e2e upload artifacts (lcov, Playwright trace) for inspection.
 
 ## Local Iteration
 
