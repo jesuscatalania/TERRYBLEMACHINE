@@ -65,6 +65,26 @@ describe("useOptimizePrompt", () => {
     expect(result.current.canUndo).toBe(false);
   });
 
+  it("optimize accepts an explicit input override", async () => {
+    const setValue = vi.fn();
+    vi.mocked(optimizePrompt).mockResolvedValueOnce("rewritten clean prompt");
+    const { result } = renderHook(() =>
+      useOptimizePrompt({ taskKind: "ImageGeneration", value: "/flux raw", setValue }),
+    );
+    let returned: string | undefined;
+    await act(async () => {
+      returned = await result.current.optimize("raw");
+    });
+    expect(optimizePrompt).toHaveBeenCalledWith("raw", "ImageGeneration");
+    expect(returned).toBe("rewritten clean prompt");
+    expect(setValue).toHaveBeenCalledWith("rewritten clean prompt");
+    // Undo target is the FULL raw prompt (with slug), not the cleanPrompt we passed in
+    act(() => {
+      result.current.undo();
+    });
+    expect(setValue).toHaveBeenLastCalledWith("/flux raw");
+  });
+
   it("ignores optimize calls while already busy", async () => {
     vi.mocked(optimizePrompt).mockClear();
     const setValue = vi.fn();

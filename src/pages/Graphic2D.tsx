@@ -86,27 +86,46 @@ export function Graphic2DPage() {
     if (!prompt.trim()) return;
     setBusy(true);
     try {
-      // 1) Optionally run the meta-prompt optimizer. We read the
-      //    optimized text from the return value rather than from
-      //    `prompt` — the setPrompt call hasn't re-rendered yet and our
-      //    closure's `prompt` variable is stale within this tick.
-      let effectivePrompt = prompt;
-      if (optimize.enabled) {
-        const optimized = await optimize.optimize();
-        effectivePrompt = optimized ?? prompt;
+      // Design-spec order (see phase-9 claude-bridge spec):
+      //   1) parseOverride on the RAW prompt → strip slug
+      //   2) optimize the cleanPrompt (never the slug — Claude must
+      //      not see `/flux` or it may mangle the override)
+      //   3) re-attach the slug to the optimized text for display so
+      //      the user's override survives visually
+      //   4) dispatch with the optimized clean text + resolved model
+      const parsed = parseOverride(prompt);
+      // Fallback when the user typed a slug-only prompt (e.g. just
+      // `/flux`): cleanPrompt is empty, so dispatch the raw text so the
+      // backend gets *something* rather than an empty-prompt error.
+      let textForDispatch = parsed.cleanPrompt || prompt;
+
+      // Only optimize when there's actual content to rewrite — skipping
+      // the call for slug-only input avoids asking Claude to expand ""
+      // into a meta-prompt.
+      if (optimize.enabled && parsed.cleanPrompt) {
+        const optimized = await optimize.optimize(parsed.cleanPrompt);
+        if (optimized !== undefined) {
+          textForDispatch = optimized;
+          // Re-attach the slug to the textarea so the user sees their
+          // override survived. `optimize()` already wrote the cleaned
+          // optimized text via its internal setValue; our second write
+          // below is the last one in this sync tick and wins (no flicker).
+          if (parsed.override && parsed.slugLocation) {
+            const reattached =
+              parsed.slugLocation === "start"
+                ? `/${parsed.override} ${optimized}`
+                : `${optimized} /${parsed.override}`;
+            setPrompt(reattached);
+          }
+        }
       }
-      // 2) Strip a leading/trailing `/tool` slug (e.g. `/flux cat`) and
-      //    resolve it to a concrete Model. If the user instead picked a
-      //    model from the ToolDropdown, that selection wins only when no
-      //    slug is present (slug always beats dropdown).
-      const parsed = parseOverride(effectivePrompt);
+
+      // Slug always beats ToolDropdown; ToolDropdown beats auto-routing.
       const overrideModel = parsed.override ? resolveOverrideToModel(parsed.override) : undefined;
       const finalModel = overrideModel ?? (model === "auto" ? undefined : model);
-      // 3) If the prompt was *only* a slug (e.g. user typed just "/flux"),
-      //    cleanPrompt is empty — fall back to the pre-parse text so the
-      //    backend doesn't get an empty-prompt error.
+
       const results = await generateVariants({
-        prompt: parsed.cleanPrompt || effectivePrompt,
+        prompt: textForDispatch,
         count: 4,
         module: "graphic2d",
         model_override: finalModel,

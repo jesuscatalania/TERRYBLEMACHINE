@@ -22,12 +22,18 @@ vi.mock("@/lib/imageCommands", () => ({
   isDataUrl: (s: string) => /^data:/i.test(s),
 }));
 
+vi.mock("@/lib/optimizeCommands", () => ({
+  optimizePrompt: vi.fn(),
+}));
+
 import { generateVariants } from "@/lib/imageCommands";
+import { optimizePrompt } from "@/lib/optimizeCommands";
 import { Graphic2DPage } from "@/pages/Graphic2D";
 
 describe("Graphic2DPage — /tool override + ToolDropdown wiring (T18)", () => {
   beforeEach(() => {
     vi.mocked(generateVariants).mockClear();
+    vi.mocked(optimizePrompt).mockClear();
   });
 
   it("parses `/flux cat sunset` prompt: model_override=FalFluxPro, cleanPrompt=cat sunset", async () => {
@@ -57,5 +63,28 @@ describe("Graphic2DPage — /tool override + ToolDropdown wiring (T18)", () => {
     const call = vi.mocked(generateVariants).mock.calls[0]?.[0];
     expect(call?.prompt).toBe("just a plain prompt");
     expect(call?.model_override).toBeUndefined();
+  });
+
+  it("parseOverride runs BEFORE optimize — Claude never sees the /tool slug", async () => {
+    vi.mocked(optimizePrompt).mockResolvedValueOnce("warm terracotta sunset over berlin rooftops");
+
+    render(<Graphic2DPage />);
+
+    fireEvent.change(screen.getByLabelText(/describe the image/i), {
+      target: { value: "/flux cat sunset" },
+    });
+    // Flip Optimize on (role=switch, name=Optimize via aria-label).
+    fireEvent.click(screen.getByRole("switch", { name: /optimize/i }));
+    fireEvent.click(screen.getByRole("button", { name: /generate 4 variants/i }));
+
+    await waitFor(() => expect(generateVariants).toHaveBeenCalledTimes(1));
+
+    // Claude was asked to optimize ONLY the clean prompt (no /flux).
+    expect(optimizePrompt).toHaveBeenCalledWith("cat sunset", "ImageGeneration");
+
+    // Dispatch uses the optimized text + the slug-derived model.
+    const call = vi.mocked(generateVariants).mock.calls[0]?.[0];
+    expect(call?.prompt).toBe("warm terracotta sunset over berlin rooftops");
+    expect(call?.model_override).toBe("FalFluxPro");
   });
 });
