@@ -71,10 +71,17 @@ describe("sendChatMessage", () => {
     // Give the listener awaits a tick to resolve.
     await Promise.resolve();
     await Promise.resolve();
-    // Simulate done-event arriving first.
-    doneCb?.({ message_id: "asst-1", error: "from-event" });
+    // Simulate done-event arriving first. Non-null assertions because TS's
+    // control-flow analysis doesn't track the mock-callback synchronous
+    // reassignments through `await Promise.resolve()` — vitest/esbuild is
+    // loose enough to run, but `tsc --noEmit` (via `pnpm build`) flags the
+    // `null` narrowing.
+    (doneCb as unknown as (payload: { message_id: string; error?: string }) => void)({
+      message_id: "asst-1",
+      error: "from-event",
+    });
     // Then invoke rejects.
-    rejectInvoke?.(new Error("late"));
+    (rejectInvoke as unknown as (err: Error) => void)(new Error("late"));
     await promise;
     expect(onDone).toHaveBeenCalledTimes(1);
     expect(onDone).toHaveBeenCalledWith("from-event");
