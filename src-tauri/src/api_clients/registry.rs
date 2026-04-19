@@ -8,9 +8,10 @@ use crate::ai_router::{AiClient, Provider};
 use crate::keychain::KeyStore;
 
 use super::{
-    claude::ClaudeClient, fal::FalClient, higgsfield::HiggsfieldClient, ideogram::IdeogramClient,
-    kling::KlingClient, meshy::MeshyClient, replicate::ReplicateClient, runway::RunwayClient,
-    shotstack::ShotstackClient,
+    claude::ClaudeClient, claude_cli::discovery::detect_claude_binary,
+    claude_cli::ClaudeCliClient, claude_cli_commands::TRANSPORT_META_KEY, fal::FalClient,
+    higgsfield::HiggsfieldClient, ideogram::IdeogramClient, kling::KlingClient, meshy::MeshyClient,
+    replicate::ReplicateClient, runway::RunwayClient, shotstack::ShotstackClient,
 };
 
 /// Build the full set of provider clients. Clients do not hit the network
@@ -26,10 +27,32 @@ use super::{
 /// routing strategy, `Model::Kling20` is never selected.
 pub fn build_default_clients(keystore: Arc<dyn KeyStore>) -> HashMap<Provider, Arc<dyn AiClient>> {
     let mut m: HashMap<Provider, Arc<dyn AiClient>> = HashMap::new();
-    m.insert(
-        Provider::Claude,
-        Arc::new(ClaudeClient::new(keystore.clone())),
-    );
+
+    // Claude transport selection — the user can pin it via Settings
+    // (`auto` | `api` | `cli`). Defaults to `auto` when nothing stored.
+    // Under `auto`, we prefer the local CLI (subscription billing) when
+    // it's installed, else fall back to the HTTP client.
+    let transport = keystore
+        .get(TRANSPORT_META_KEY)
+        .ok()
+        .unwrap_or_else(|| "auto".to_string());
+    let claude_client: Arc<dyn AiClient> = match transport.as_str() {
+        "cli" => match detect_claude_binary() {
+            Some(bin) => Arc::new(ClaudeCliClient::new(bin)),
+            None => {
+                eprintln!(
+                    "[registry] Claude transport pinned to 'cli' but no claude binary found — falling back to HTTP API"
+                );
+                Arc::new(ClaudeClient::new(keystore.clone()))
+            }
+        },
+        "api" => Arc::new(ClaudeClient::new(keystore.clone())),
+        _ => match detect_claude_binary() {
+            Some(bin) => Arc::new(ClaudeCliClient::new(bin)),
+            None => Arc::new(ClaudeClient::new(keystore.clone())),
+        },
+    };
+    m.insert(Provider::Claude, claude_client);
     m.insert(
         Provider::Kling,
         Arc::new(KlingClient::new(keystore.clone())),

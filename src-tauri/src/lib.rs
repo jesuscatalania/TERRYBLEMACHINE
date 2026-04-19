@@ -23,6 +23,9 @@ use tauri::Manager;
 
 use ai_router::commands::AiRouterState;
 use ai_router::{AiRouter, DefaultRoutingStrategy, PriorityQueue, RetryPolicy};
+use api_clients::claude_cli_commands::{
+    detect_claude_cli, get_claude_transport, set_claude_transport,
+};
 use brand_kit::commands::BrandKitState;
 use brand_kit::{BrandKitBuilder, StandardBrandKit};
 use code_generator::commands::CodeGeneratorState;
@@ -248,6 +251,9 @@ pub fn run() {
             keychain::commands::get_api_key,
             keychain::commands::delete_api_key,
             keychain::commands::list_api_keys,
+            detect_claude_cli,
+            get_claude_transport,
+            set_claude_transport,
             projects::commands::create_project,
             projects::commands::open_project,
             projects::commands::list_projects,

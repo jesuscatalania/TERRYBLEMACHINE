@@ -14,6 +14,7 @@
 
 pub mod claude;
 pub mod claude_cli;
+pub mod claude_cli_commands;
 pub mod common;
 pub mod fal;
 pub mod higgsfield;
