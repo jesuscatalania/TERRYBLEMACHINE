@@ -417,6 +417,7 @@ mod tests {
             complexity: Complexity::Medium,
             prompt: prompt.into(),
             payload: serde_json::Value::Null,
+            model_override: None,
         }
     }
 

@@ -72,6 +72,7 @@ impl DepthPipeline for RouterDepthPipeline {
             complexity: Complexity::Medium,
             prompt: String::new(),
             payload: json!({ "image_url": image_url }),
+            model_override: None,
         };
 
         let resp = self

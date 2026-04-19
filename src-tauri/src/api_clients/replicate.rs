@@ -411,6 +411,7 @@ mod tests {
             complexity: Complexity::Medium,
             prompt: prompt.into(),
             payload: Value::Null,
+            model_override: None,
         }
     }
 
@@ -556,6 +557,7 @@ mod tests {
             complexity: Complexity::Medium,
             prompt: String::new(),
             payload: json!({ "image_url": "https://src/a.png" }),
+            model_override: None,
         };
         let resp = client
             .execute(Model::ReplicateDepthAnythingV2, &req)
@@ -605,6 +607,7 @@ mod tests {
             complexity: Complexity::Simple,
             prompt: String::new(),
             payload: json!({ "image_url": "https://src/a.png" }),
+            model_override: None,
         };
         let resp = client
             .execute(Model::ReplicateTripoSR, &req)
@@ -641,6 +644,7 @@ mod tests {
             complexity: Complexity::Simple,
             prompt: String::new(),
             payload: json!({}),
+            model_override: None,
         };
         let err = client
             .execute(Model::ReplicateTripoSR, &req)
@@ -668,6 +672,7 @@ mod tests {
             complexity: Complexity::Medium,
             prompt: String::new(),
             payload: json!({}),
+            model_override: None,
         };
         let err = client
             .execute(Model::ReplicateDepthAnythingV2, &req)
@@ -735,6 +740,7 @@ mod tests {
             complexity: Complexity::Simple,
             prompt: String::new(),
             payload: json!({ "image_url": "https://src/a.png" }),
+            model_override: None,
         };
         let resp = client
             .execute(Model::ReplicateTripoSR, &req)

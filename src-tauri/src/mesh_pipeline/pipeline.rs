@@ -117,6 +117,7 @@ impl MeshPipeline for RouterMeshPipeline {
             complexity: Complexity::Medium,
             prompt: input.prompt,
             payload: json!({}),
+            model_override: None,
         };
         let resp = self
             .router
@@ -169,6 +170,7 @@ impl MeshPipeline for RouterMeshPipeline {
             complexity,
             prompt: input.prompt.unwrap_or_default(),
             payload: json!({ "image_url": input.image_url }),
+            model_override: None,
         };
         let resp = self
             .router

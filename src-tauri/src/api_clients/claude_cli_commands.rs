@@ -28,8 +28,7 @@ const VALID_TRANSPORTS: &[&str] = &["auto", "api", "cli"];
 /// this machine. Never throws — a missing binary is represented by `None`.
 #[tauri::command]
 pub fn detect_claude_cli() -> Option<String> {
-    super::claude_cli::discovery::detect_claude_binary()
-        .map(|p| p.to_string_lossy().into_owned())
+    super::claude_cli::discovery::detect_claude_binary().map(|p| p.to_string_lossy().into_owned())
 }
 
 /// Read the persisted Claude transport selection. Defaults to `"auto"` when

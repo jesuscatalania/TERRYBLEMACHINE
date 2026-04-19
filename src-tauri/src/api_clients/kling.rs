@@ -392,6 +392,7 @@ mod tests {
             complexity: Complexity::Medium,
             prompt: prompt.into(),
             payload: serde_json::Value::Null,
+            model_override: None,
         }
     }
 
@@ -548,6 +549,7 @@ mod tests {
             complexity: Complexity::Medium,
             prompt: "cinematic".into(),
             payload: json!({ "image_url": "https://src/a.png" }),
+            model_override: None,
         };
         let resp = client.execute(Model::Kling20, &req).await.unwrap();
         assert_eq!(
@@ -567,6 +569,7 @@ mod tests {
             complexity: Complexity::Medium,
             prompt: "x".into(),
             payload: serde_json::Value::Null,
+            model_override: None,
         };
         let err = client.execute(Model::Kling20, &req).await.unwrap_err();
         assert!(matches!(err, ProviderError::Permanent(_)));
@@ -583,6 +586,7 @@ mod tests {
             complexity: Complexity::Medium,
             prompt: "x".into(),
             payload: serde_json::Value::Null,
+            model_override: None,
         };
         let err = client.execute(Model::Kling20, &req).await.unwrap_err();
         assert!(matches!(err, ProviderError::Permanent(_)));

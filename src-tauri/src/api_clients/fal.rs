@@ -608,6 +608,7 @@ mod tests {
             complexity: Complexity::Medium,
             prompt: prompt.into(),
             payload,
+            model_override: None,
         }
     }
 
@@ -883,6 +884,7 @@ mod tests {
             complexity: Complexity::Medium,
             prompt: "a cat dancing".into(),
             payload: Value::Null,
+            model_override: None,
         };
         let resp = client.execute(Model::FalKlingV2Master, &req).await.unwrap();
         assert_eq!(resp.model, Model::FalKlingV2Master);
@@ -949,6 +951,7 @@ mod tests {
             complexity: Complexity::Medium,
             prompt: "cinematic dolly".into(),
             payload: json!({ "image_url": "https://src/hero.png" }),
+            model_override: None,
         };
         let resp = client.execute(Model::FalKlingV15, &req).await.unwrap();
         assert_eq!(

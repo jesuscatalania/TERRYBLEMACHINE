@@ -76,6 +76,7 @@ fn new_request(
         complexity,
         prompt,
         payload,
+        model_override: None,
     }
 }
 

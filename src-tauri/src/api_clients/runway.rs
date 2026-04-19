@@ -341,6 +341,7 @@ mod tests {
             complexity: Complexity::Medium,
             prompt: prompt.into(),
             payload: serde_json::Value::Null,
+            model_override: None,
         }
     }
 
@@ -607,6 +608,7 @@ mod tests {
             prompt: "x".into(),
             // motion_brush as a scalar — must be rejected before hitting Runway.
             payload: json!({ "motion_brush": "not-an-object" }),
+            model_override: None,
         };
         let err = client.execute(Model::RunwayGen3, &req).await.unwrap_err();
         match err {
@@ -653,6 +655,7 @@ mod tests {
             payload: json!({
                 "motion_brush": { "strokes": [{"x": 10, "y": 20, "dx": 5, "dy": 0}] }
             }),
+            model_override: None,
         };
         let resp = client.execute(Model::RunwayGen3, &req).await.unwrap();
         assert_eq!(

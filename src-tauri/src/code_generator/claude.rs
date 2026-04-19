@@ -70,6 +70,7 @@ impl CodeGenerator for ClaudeCodeGenerator {
             complexity: Complexity::Complex,
             prompt: prompt.clone(),
             payload: serde_json::Value::Null,
+            model_override: None,
         };
 
         let response = self

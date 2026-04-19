@@ -149,6 +149,13 @@ pub struct AiRequest {
     /// Provider-specific additional inputs (image URLs, tuning params, etc).
     #[serde(default)]
     pub payload: serde_json::Value,
+    /// Caller-supplied primary model. When `Some`, the router uses this
+    /// model first and demotes the strategy's original primary into the
+    /// fallback slot (if not already present and different from the
+    /// override). When `None`, the strategy's selection stands. Marked
+    /// `#[serde(default)]` so existing JSON payloads stay wire-compatible.
+    #[serde(default)]
+    pub model_override: Option<Model>,
 }
 
 fn default_priority() -> Priority {

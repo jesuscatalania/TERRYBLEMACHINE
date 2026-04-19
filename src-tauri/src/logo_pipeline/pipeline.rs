@@ -177,6 +177,7 @@ impl LogoPipeline for RouterLogoPipeline {
                     complexity: Complexity::Medium,
                     prompt,
                     payload: json!({ "seed": seed }),
+                    model_override: None,
                 };
                 let resp = router.route(req).await.map_err(router_to_pipeline_err)?;
                 let url = extract_logo_url(&resp).ok_or(LogoPipelineError::NoOutput)?;

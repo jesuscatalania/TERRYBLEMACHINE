@@ -124,6 +124,7 @@ impl VideoPipeline for RouterVideoPipeline {
             complexity: Complexity::Medium,
             prompt: input.prompt,
             payload,
+            model_override: None,
         };
         let resp = self
             .router
@@ -178,6 +179,7 @@ impl VideoPipeline for RouterVideoPipeline {
             complexity: Complexity::Medium,
             prompt: input.prompt.unwrap_or_default(),
             payload,
+            model_override: None,
         };
         let resp = self
             .router

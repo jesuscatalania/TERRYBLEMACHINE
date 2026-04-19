@@ -124,7 +124,19 @@ impl AiRouter {
     /// 5. If every option exhausts its retries, [`RouterError::AllFallbacksFailed`]
     ///    is returned carrying the last provider error.
     pub async fn route(&self, request: AiRequest) -> Result<AiResponse, RouterError> {
-        let decision = self.strategy.select(&request);
+        let mut decision = self.strategy.select(&request);
+
+        // If the caller pinned a specific primary model (e.g. Settings UI
+        // override), slot it in front and keep the strategy's original
+        // primary as a fallback so we don't lose the safety net.
+        if let Some(override_model) = request.model_override {
+            let original_primary = decision.primary;
+            decision.primary = override_model;
+            if !decision.fallbacks.contains(&original_primary) && original_primary != override_model
+            {
+                decision.fallbacks.insert(0, original_primary);
+            }
+        }
 
         let cache_key = SemanticCache::key(&request.prompt, decision.primary, &request.payload);
         if let Some(cached) = self.cache.get(&cache_key).await {
@@ -309,6 +321,7 @@ mod tests {
             complexity: Complexity::Medium,
             prompt: "hi".into(),
             payload: serde_json::Value::Null,
+            model_override: None,
         }
     }
 
@@ -375,6 +388,7 @@ mod tests {
                 complexity: Complexity::Medium,
                 prompt: "a clip".into(),
                 payload: serde_json::Value::Null,
+                model_override: None,
             })
             .await
             .unwrap();
@@ -404,6 +418,7 @@ mod tests {
                 complexity: Complexity::Medium,
                 prompt: "a clip".into(),
                 payload: serde_json::Value::Null,
+                model_override: None,
             })
             .await
             .unwrap_err();
@@ -493,6 +508,7 @@ mod tests {
                 complexity: Complexity::Simple,
                 prompt: "blocked".into(),
                 payload: serde_json::Value::Null,
+                model_override: None,
             })
             .await
             .unwrap_err();
@@ -644,6 +660,7 @@ mod tests {
                 complexity: Complexity::Medium,
                 prompt: "a clip".into(),
                 payload: serde_json::Value::Null,
+                model_override: None,
             })
             .await
             .unwrap_err();
@@ -659,5 +676,34 @@ mod tests {
         assert_eq!(fal.calls.load(Ordering::SeqCst), 1);
         // CRITICAL: ZERO calls on the off-provider fallback.
         assert_eq!(runway.calls.load(Ordering::SeqCst), 0);
+    }
+
+    /// When the caller pins `model_override`, the router MUST use the
+    /// override as the primary and keep the strategy's original primary as
+    /// the (demoted) top fallback. Here, `TextGeneration` + `Medium` would
+    /// normally pick `ClaudeSonnet`; overriding to `ClaudeOpus` must change
+    /// the served model while the Claude MockClient answers for both.
+    #[tokio::test]
+    async fn route_with_model_override_uses_override_as_primary() {
+        let client = Arc::new(MockClient::new(Provider::Claude, 0, false));
+        let router = router_with(vec![(
+            Provider::Claude,
+            client.clone() as Arc<dyn AiClient>,
+        )]);
+
+        let req = AiRequest {
+            id: "override-1".into(),
+            task: TaskKind::TextGeneration,
+            priority: Priority::Normal,
+            complexity: Complexity::Medium,
+            prompt: "force opus".into(),
+            payload: serde_json::Value::Null,
+            model_override: Some(Model::ClaudeOpus),
+        };
+        let resp = router.route(req).await.unwrap();
+        // Response model must be the overridden one — NOT the strategy's
+        // original primary (Sonnet).
+        assert_eq!(resp.model, Model::ClaudeOpus);
+        assert_eq!(client.calls.load(Ordering::SeqCst), 1);
     }
 }

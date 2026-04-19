@@ -184,6 +184,7 @@ impl VisionAnalyzer for ClaudeVisionAnalyzer {
             payload: json!({
                 "images": [{ "media_type": mime, "data": b64 }]
             }),
+            model_override: None,
         };
 
         let resp = self

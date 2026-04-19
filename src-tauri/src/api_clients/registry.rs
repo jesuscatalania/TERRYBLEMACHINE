@@ -8,10 +8,10 @@ use crate::ai_router::{AiClient, Provider};
 use crate::keychain::KeyStore;
 
 use super::{
-    claude::ClaudeClient, claude_cli::discovery::detect_claude_binary,
-    claude_cli::ClaudeCliClient, claude_cli_commands::TRANSPORT_META_KEY, fal::FalClient,
-    higgsfield::HiggsfieldClient, ideogram::IdeogramClient, kling::KlingClient, meshy::MeshyClient,
-    replicate::ReplicateClient, runway::RunwayClient, shotstack::ShotstackClient,
+    claude::ClaudeClient, claude_cli::discovery::detect_claude_binary, claude_cli::ClaudeCliClient,
+    claude_cli_commands::TRANSPORT_META_KEY, fal::FalClient, higgsfield::HiggsfieldClient,
+    ideogram::IdeogramClient, kling::KlingClient, meshy::MeshyClient, replicate::ReplicateClient,
+    runway::RunwayClient, shotstack::ShotstackClient,
 };
 
 /// Build the full set of provider clients. Clients do not hit the network

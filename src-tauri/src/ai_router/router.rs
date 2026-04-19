@@ -155,6 +155,7 @@ mod tests {
             complexity,
             prompt: String::new(),
             payload: serde_json::Value::Null,
+            model_override: None,
         }
     }
 
