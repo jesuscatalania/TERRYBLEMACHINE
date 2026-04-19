@@ -51,8 +51,8 @@ Verification pipeline:
 - `docs/TESTING.md` documents chunks + how to inspect
 
 ## TODO ledger from final review
-- Circular chunk `vendor-three ↔ vendor-misc` (introduced when react-dom moved to vendor-react). Logged as backlog. Likely a `@react-three/drei` transitive dep that the regex doesn't catch.
-- `vendor-misc` still 1 MB / 305 KB gz — further splits possible (vendor-pdf for jspdf+html2canvas, vendor-icons for lucide-react). Backlog.
+- ~~Circular chunk `vendor-three ↔ vendor-misc` — resolved by extending the vendor-three regex to also match `postprocessing`, `troika-three-text`/`troika-three-utils`/`troika-worker-utils`, `bidi-js`, `webgl-sdf-generator`, `three-stdlib`, `three-mesh-bvh`, `n8ao`, `maath`, `meshline`, `glsl-noise`, `camera-controls`, `detect-gpu`, `stats-gl`, `stats.js`, `hls.js`, `@mediapipe/tasks-vision`, `@monogrid/gainmap-js`, `@use-gesture/core`+`@use-gesture/react`, `its-fine`, `suspend-react`, `tunnel-rat`, `react-use-measure` (all reached transitively via drei/postprocessing).~~
+- ~~`vendor-misc` still 1 MB / 305 KB gz — split into vendor-pdf (jspdf/html2canvas/dompurify + canvg/fflate/fast-png/css-line-break/text-segmentation/etc.), vendor-icons (lucide-react), vendor-gif (gif.js); vendor-misc dropped to 102.50 KB / 34.25 KB gz.~~
 - No Playwright assertion that `ModuleLoadingFallback` actually renders during cold route entry. Backlog.
 
 ## Backlog filed during execution
