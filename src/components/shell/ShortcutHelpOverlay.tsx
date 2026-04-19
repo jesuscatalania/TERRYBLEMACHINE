@@ -12,6 +12,20 @@ const SCOPE_LABEL: Record<ShortcutScope, string> = {
   "module:typography": "Typography",
 };
 
+// Most-specific first: page-level shortcuts are the most contextually
+// relevant to what the user is currently doing, then module-scoped
+// shortcuts (active for the whole feature area), then truly global ones
+// (Cmd+1-5, Cmd+N, etc.) which the user is likely already familiar with.
+const SCOPE_PRIORITY: Record<ShortcutScope, number> = {
+  page: 0,
+  "module:website": 1,
+  "module:graphic2d": 1,
+  "module:graphic3d": 1,
+  "module:video": 1,
+  "module:typography": 1,
+  global: 2,
+};
+
 export interface ShortcutHelpOverlayProps {
   open: boolean;
   onClose: () => void;
@@ -32,10 +46,17 @@ export function ShortcutHelpOverlay({ open, onClose }: ShortcutHelpOverlayProps)
     groups.set(e.scope, arr);
   }
 
+  // Sort by SCOPE_PRIORITY so the user sees the most specific shortcuts
+  // first (page → module → global) instead of insertion order, which is
+  // a function of registration timing and varies across pages.
+  const sortedGroups = Array.from(groups.entries()).sort(
+    ([a], [b]) => (SCOPE_PRIORITY[a] ?? 99) - (SCOPE_PRIORITY[b] ?? 99),
+  );
+
   return (
     <Modal open={open} onClose={onClose} title="Keyboard shortcuts" maxWidth={520}>
       <div className="flex flex-col gap-4">
-        {Array.from(groups.entries()).map(([scope, list]) => (
+        {sortedGroups.map(([scope, list]) => (
           <div key={scope} className="flex flex-col gap-2">
             <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
               {SCOPE_LABEL[scope]}

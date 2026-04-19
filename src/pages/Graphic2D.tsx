@@ -17,6 +17,7 @@ import { Dropdown } from "@/components/ui/Dropdown";
 import { HelpIcon } from "@/components/ui/HelpIcon";
 import { Input } from "@/components/ui/Input";
 import { LoadingButton } from "@/components/ui/LoadingButton";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { generateVariants, type ImageResult, inpaintImage, isDataUrl } from "@/lib/imageCommands";
 import { useUiStore } from "@/stores/uiStore";
 
@@ -289,7 +290,17 @@ export function Graphic2DPage() {
           </LoadingButton>
         </div>
 
-        {variants.length > 0 ? (
+        {busy && variants.length === 0 ? (
+          <div className="grid grid-cols-4 gap-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton
+                // biome-ignore lint/suspicious/noArrayIndexKey: static placeholder list
+                key={`skeleton-${i}`}
+                className="aspect-square w-full"
+              />
+            ))}
+          </div>
+        ) : variants.length > 0 ? (
           <div className="grid grid-cols-4 gap-2">
             {variants.map((v) => (
               <button
