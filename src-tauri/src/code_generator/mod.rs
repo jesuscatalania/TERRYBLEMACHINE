@@ -14,6 +14,7 @@
 pub mod assist;
 mod claude;
 pub mod commands;
+pub mod optimize;
 mod prompt;
 mod stub;
 mod templates;

@@ -274,6 +274,7 @@ pub fn run() {
             website_analyzer::commands::analyze_url,
             code_generator::commands::generate_website,
             code_generator::assist::modify_code_selection,
+            code_generator::optimize::optimize_prompt,
             storyboard_generator::commands::generate_storyboard,
             exporter::commands::export_website,
             image_pipeline::commands::text_to_image,
