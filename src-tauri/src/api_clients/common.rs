@@ -21,31 +21,26 @@ use crate::keychain::{KeyStore, KeyStoreError};
 pub struct RateLimiter {
     sem: Arc<Semaphore>,
     capacity: usize,
+    max_per_sec: usize,
+    /// Guard so the refill task spawns exactly once, lazily on first acquire.
+    /// Synchronous `OnceLock` is fine here because `tokio::spawn` is itself
+    /// sync (returns a `JoinHandle`); the `get_or_init` closure just needs to
+    /// run from within a Tokio runtime, which `acquire` (the only caller)
+    /// guarantees.
+    refill_started: Arc<std::sync::OnceLock<()>>,
 }
 
 impl RateLimiter {
-    /// Construct a limiter plus its refill task. The task runs until the
-    /// returned `Arc<Semaphore>` is dropped (see [`RateLimiter::drop_all`]).
+    /// Construct a limiter. The refill task is **deferred** until first
+    /// `acquire()` so this constructor is safe to call from non-async,
+    /// non-runtime contexts (e.g. `lib.rs::run` before Tauri starts the
+    /// Tokio runtime).
     pub fn new(max_per_sec: usize) -> Self {
-        let sem = Arc::new(Semaphore::new(max_per_sec));
-        let replenisher = sem.clone();
-        tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(Duration::from_secs(1));
-            ticker.tick().await; // skip first immediate tick
-            loop {
-                ticker.tick().await;
-                let deficit = max_per_sec.saturating_sub(replenisher.available_permits());
-                if deficit > 0 {
-                    replenisher.add_permits(deficit);
-                }
-                if Arc::strong_count(&replenisher) <= 1 {
-                    break;
-                }
-            }
-        });
         Self {
-            sem,
+            sem: Arc::new(Semaphore::new(max_per_sec)),
             capacity: max_per_sec,
+            max_per_sec,
+            refill_started: Arc::new(std::sync::OnceLock::new()),
         }
     }
 
@@ -55,10 +50,38 @@ impl RateLimiter {
         Self {
             sem: Arc::new(Semaphore::new(usize::MAX >> 4)),
             capacity: usize::MAX >> 4,
+            max_per_sec: usize::MAX >> 4,
+            // OnceLock present but never initialized — `acquire` on the
+            // unlimited variant doesn't need a refill task at all.
+            refill_started: Arc::new(std::sync::OnceLock::new()),
         }
     }
 
+    /// Spawn the refill task on first call. Idempotent via `OnceLock`.
+    /// Must be called from within a Tokio runtime (guaranteed by `acquire`).
+    fn ensure_refill_started(&self) {
+        self.refill_started.get_or_init(|| {
+            let replenisher = self.sem.clone();
+            let max_per_sec = self.max_per_sec;
+            tokio::spawn(async move {
+                let mut ticker = tokio::time::interval(Duration::from_secs(1));
+                ticker.tick().await; // skip first immediate tick
+                loop {
+                    ticker.tick().await;
+                    let deficit = max_per_sec.saturating_sub(replenisher.available_permits());
+                    if deficit > 0 {
+                        replenisher.add_permits(deficit);
+                    }
+                    if Arc::strong_count(&replenisher) <= 1 {
+                        break;
+                    }
+                }
+            });
+        });
+    }
+
     pub async fn acquire(&self) {
+        self.ensure_refill_started();
         let permit = self.sem.clone().acquire_owned().await;
         // We don't hold the permit — the refill task replaces it.
         drop(permit);
