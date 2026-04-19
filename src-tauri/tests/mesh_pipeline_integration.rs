@@ -177,6 +177,7 @@ async fn text_to_mesh_downloads_to_cache() {
         .generate_from_text(MeshTextInput {
             prompt: "a cup".into(),
             module: None,
+            model_override: None,
         })
         .await
         .expect("text-to-mesh succeeds");
@@ -204,6 +205,7 @@ async fn text_to_mesh_rejects_empty_prompt() {
         .generate_from_text(MeshTextInput {
             prompt: "   ".into(),
             module: None,
+            model_override: None,
         })
         .await
         .expect_err("empty prompt must be rejected before routing");
@@ -248,6 +250,7 @@ async fn download_is_idempotent_across_calls() {
         .generate_from_text(MeshTextInput {
             prompt: "cube".into(),
             module: None,
+            model_override: None,
         })
         .await
         .expect("first call succeeds");
@@ -255,6 +258,7 @@ async fn download_is_idempotent_across_calls() {
         .generate_from_text(MeshTextInput {
             prompt: "cube".into(),
             module: None,
+            model_override: None,
         })
         .await
         .expect("second call succeeds");

@@ -40,6 +40,13 @@ export interface GenerationInput {
   reference?: AnalysisResult | null;
   image_path?: string | null;
   module?: string;
+  /**
+   * PascalCase Model enum variant (e.g. `"ClaudeSonnet"`), or undefined to
+   * let the router's strategy pick. Resolved from either the Tool
+   * dropdown or a `/tool` prompt override. Sent as snake_case since the
+   * Rust `GenerationInput` struct keeps field names as-is.
+   */
+  model_override?: string;
 }
 
 export type ExportFormat = "raw" | "react" | "next-js";

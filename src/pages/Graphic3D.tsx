@@ -18,6 +18,9 @@ import { Button } from "@/components/ui/Button";
 import { HelpIcon } from "@/components/ui/HelpIcon";
 import { Input } from "@/components/ui/Input";
 import { LoadingButton } from "@/components/ui/LoadingButton";
+import { OptimizeToggle } from "@/components/ui/OptimizeToggle";
+import { ToolDropdown } from "@/components/ui/ToolDropdown";
+import { useOptimizePrompt } from "@/hooks/useOptimizePrompt";
 import { type DepthResult, generateDepth } from "@/lib/depthCommands";
 import {
   exportMesh,
@@ -25,6 +28,7 @@ import {
   generateMeshFromText,
   type MeshResult,
 } from "@/lib/meshCommands";
+import { parseOverride, resolveOverrideToModel } from "@/lib/promptOverride";
 import { useProjectStore } from "@/stores/projectStore";
 import { useUiStore } from "@/stores/uiStore";
 
@@ -44,6 +48,15 @@ export function Graphic3DPage() {
   const [imageMeshBusy, setImageMeshBusy] = useState(false);
   const [quickPreview, setQuickPreview] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  // "auto" = let the router strategy pick. Otherwise a PascalCase Model
+  // enum string from the ToolDropdown (or resolved from a `/tool` slug).
+  // Only wired to the text-to-3D path — image-to-3D remains auto-routed.
+  const [model, setModel] = useState<string>("auto");
+  const optimize = useOptimizePrompt({
+    taskKind: "Text3D",
+    value: meshPrompt,
+    setValue: setMeshPrompt,
+  });
   const glRef = useRef<ExportRefs | null>(null);
   const notify = useUiStore((s) => s.notify);
   const currentProject = useProjectStore((s) => s.currentProject);
@@ -72,7 +85,37 @@ export function Graphic3DPage() {
     if (!trimmed) return;
     setMeshBusy(true);
     try {
-      const result = await generateMeshFromText({ prompt: trimmed, module: "graphic3d" });
+      // Design-spec order (see phase-9 claude-bridge spec):
+      //   1) parseOverride on the RAW prompt → strip slug
+      //   2) optimize the cleanPrompt (never the slug — Claude must
+      //      not see `/meshy` or it may mangle the override)
+      //   3) re-attach the slug to the textarea for display
+      //   4) dispatch with the optimized clean text + resolved model
+      const parsed = parseOverride(meshPrompt);
+      let textForDispatch = parsed.cleanPrompt || meshPrompt;
+
+      if (optimize.enabled && parsed.cleanPrompt) {
+        const optimized = await optimize.optimize(parsed.cleanPrompt);
+        if (optimized !== undefined) {
+          textForDispatch = optimized;
+          if (parsed.override && parsed.slugLocation) {
+            const reattached =
+              parsed.slugLocation === "start"
+                ? `/${parsed.override} ${optimized}`
+                : `${optimized} /${parsed.override}`;
+            setMeshPrompt(reattached);
+          }
+        }
+      }
+
+      const overrideModel = parsed.override ? resolveOverrideToModel(parsed.override) : undefined;
+      const finalModel = overrideModel ?? (model === "auto" ? undefined : model);
+
+      const result = await generateMeshFromText({
+        prompt: textForDispatch,
+        module: "graphic3d",
+        model_override: finalModel,
+      });
       setMeshResult(result);
       notify({ kind: "success", message: "3D mesh ready", detail: result.model });
     } catch (err) {
@@ -249,6 +292,16 @@ export function Graphic3DPage() {
             Requesting image-to-3D…
           </span>
         ) : null}
+        <div className="flex items-center gap-2">
+          <ToolDropdown taskKind="Text3D" value={model} onChange={setModel} />
+          <OptimizeToggle
+            enabled={optimize.enabled}
+            onToggle={optimize.setEnabled}
+            busy={optimize.busy}
+            canUndo={optimize.canUndo}
+            onUndo={optimize.undo}
+          />
+        </div>
         <div className="flex items-end gap-2">
           <div className="flex-1">
             <Input

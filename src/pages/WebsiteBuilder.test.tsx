@@ -101,4 +101,18 @@ describe("WebsiteBuilderPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /generate/i }));
     await waitFor(() => expect(screen.getByRole("button", { name: /export/i })).not.toBeDisabled());
   });
+
+  it("parses `/claude build me a blog` prompt: model_override=ClaudeSonnet, cleanPrompt=build me a blog", async () => {
+    renderPage();
+    fireEvent.change(screen.getByLabelText(/describe the site/i), {
+      target: { value: "/claude build me a blog" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^generate$/i }));
+    await waitFor(() => expect(generateWebsite).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(generateWebsite).mock.calls[0]?.[0]).toMatchObject({
+      prompt: "build me a blog",
+      module: "website",
+      model_override: "ClaudeSonnet",
+    });
+  });
 });

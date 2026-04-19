@@ -50,6 +50,7 @@ mod tests {
                 count: 3,
                 palette: None,
                 module: "typography".into(),
+                model_override: None,
             })
             .await
             .unwrap_err();
@@ -66,6 +67,7 @@ mod tests {
                 count: 4,
                 palette: None,
                 module: "typography".into(),
+                model_override: None,
             })
             .await
             .unwrap();
@@ -76,6 +78,7 @@ mod tests {
                 count: 4,
                 palette: None,
                 module: "typography".into(),
+                model_override: None,
             })
             .await
             .unwrap();
@@ -94,6 +97,7 @@ mod tests {
                 count: 99,
                 palette: None,
                 module: "typography".into(),
+                model_override: None,
             })
             .await
             .unwrap();

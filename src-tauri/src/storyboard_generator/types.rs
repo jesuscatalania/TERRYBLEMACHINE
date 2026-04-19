@@ -4,6 +4,8 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::ai_router::Model;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum StoryboardTemplate {
@@ -34,6 +36,13 @@ pub struct StoryboardInput {
     pub template: StoryboardTemplate,
     #[serde(default = "default_module")]
     pub module: String,
+    /// Optional model slug override from UI (ToolDropdown or `/tool`
+    /// prefix). PascalCase variant name — matches `Model`'s default
+    /// Serde repr (e.g. `"FalKlingV2Master"`). `None` means the router
+    /// strategy picks the primary model for the storyboard's
+    /// text-generation dispatch.
+    #[serde(default)]
+    pub model_override: Option<Model>,
 }
 
 fn default_module() -> String {
@@ -70,4 +79,23 @@ pub enum StoryboardError {
 #[async_trait]
 pub trait StoryboardGenerator: Send + Sync {
     async fn generate(&self, input: StoryboardInput) -> Result<Storyboard, StoryboardError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn storyboard_input_accepts_model_override() {
+        let json = r#"{"prompt":"sunrise","model_override":"FalKlingV2Master"}"#;
+        let parsed: StoryboardInput = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.model_override, Some(Model::FalKlingV2Master));
+    }
+
+    #[test]
+    fn storyboard_input_defaults_model_override_to_none() {
+        let json = r#"{"prompt":"sunrise"}"#;
+        let parsed: StoryboardInput = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.model_override, None);
+    }
 }

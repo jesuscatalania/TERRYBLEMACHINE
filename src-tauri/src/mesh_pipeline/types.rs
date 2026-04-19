@@ -12,6 +12,8 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::ai_router::Model;
+
 // ─── Inputs ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Deserialize)]
@@ -19,6 +21,12 @@ pub struct MeshTextInput {
     pub prompt: String,
     #[serde(default)]
     pub module: Option<String>,
+    /// Optional model slug override from UI (ToolDropdown or `/tool`
+    /// prefix). PascalCase variant name — matches `Model`'s default
+    /// Serde repr (e.g. `"MeshyText3D"`). `None` means the router
+    /// strategy picks the primary model.
+    #[serde(default)]
+    pub model_override: Option<Model>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -83,4 +91,23 @@ pub trait MeshPipeline: Send + Sync {
         &self,
         input: MeshImageInput,
     ) -> Result<MeshResult, MeshPipelineError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mesh_text_input_accepts_model_override() {
+        let json = r#"{"prompt":"a cube","model_override":"MeshyText3D"}"#;
+        let parsed: MeshTextInput = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.model_override, Some(Model::MeshyText3D));
+    }
+
+    #[test]
+    fn mesh_text_input_defaults_model_override_to_none() {
+        let json = r#"{"prompt":"a cube"}"#;
+        let parsed: MeshTextInput = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.model_override, None);
+    }
 }

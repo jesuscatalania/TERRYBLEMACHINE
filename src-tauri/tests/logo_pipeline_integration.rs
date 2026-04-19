@@ -105,6 +105,7 @@ async fn generates_variants_via_ideogram_route() {
             count: 5,
             palette: None,
             module: "typography".into(),
+            model_override: None,
         })
         .await
         .unwrap();
@@ -140,6 +141,7 @@ async fn generate_variants_rejects_empty_prompt() {
             count: 3,
             palette: None,
             module: "typography".into(),
+            model_override: None,
         })
         .await
         .unwrap_err();
@@ -163,6 +165,7 @@ async fn generate_variants_caps_count_at_10() {
             count: 25,
             palette: Some("monochrome".into()),
             module: "typography".into(),
+            model_override: None,
         })
         .await
         .unwrap();
@@ -184,6 +187,7 @@ async fn download_is_idempotent_across_calls() {
             count: 1,
             palette: None,
             module: "typography".into(),
+            model_override: None,
         })
         .await
         .unwrap();
@@ -194,6 +198,7 @@ async fn download_is_idempotent_across_calls() {
             count: 1,
             palette: None,
             module: "typography".into(),
+            model_override: None,
         })
         .await
         .unwrap();

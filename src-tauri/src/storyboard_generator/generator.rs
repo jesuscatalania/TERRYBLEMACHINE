@@ -50,7 +50,7 @@ impl StoryboardGenerator for ClaudeStoryboardGenerator {
             complexity: Complexity::Medium,
             prompt,
             payload: json!({}),
-            model_override: None,
+            model_override: input.model_override,
         };
         let resp = self
             .router

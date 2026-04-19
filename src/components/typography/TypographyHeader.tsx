@@ -19,6 +19,14 @@ export interface TypographyHeaderProps {
   onPaletteChange: (next: string) => void;
   busy: boolean;
   onGenerate: () => void;
+  /**
+   * Optional slot rendered between the module banner and the main
+   * prompt row. Used by `TypographyPage` to mount the
+   * `ToolDropdown + OptimizeToggle` row introduced in Phase 9 T19
+   * without forcing it on callers that don't need override/optimize
+   * wiring (the component stays a pure controlled view).
+   */
+  toolsSlot?: React.ReactNode;
 }
 
 export function TypographyHeader({
@@ -30,6 +38,7 @@ export function TypographyHeader({
   onPaletteChange,
   busy,
   onGenerate,
+  toolsSlot,
 }: TypographyHeaderProps) {
   return (
     <div className="flex flex-col gap-3 border-neutral-dark-700 border-b p-6">
@@ -38,6 +47,7 @@ export function TypographyHeader({
           MOD—05 · TYPE & LOGO
         </span>
       </div>
+      {toolsSlot ? <div className="flex items-center gap-2">{toolsSlot}</div> : null}
       <div className="flex items-end gap-2">
         <div className="flex-1">
           <Input

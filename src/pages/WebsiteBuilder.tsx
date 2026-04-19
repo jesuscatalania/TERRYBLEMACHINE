@@ -3,14 +3,18 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
 import { LoadingButton } from "@/components/ui/LoadingButton";
+import { OptimizeToggle } from "@/components/ui/OptimizeToggle";
 import { Tabs } from "@/components/ui/Tabs";
+import { ToolDropdown } from "@/components/ui/ToolDropdown";
 import { CodeEditor } from "@/components/website/CodeEditor";
 import { DevicePreview, type DeviceSize } from "@/components/website/DevicePreview";
 import {
   WebsiteExportDialog,
   type WebsiteExportSettings,
 } from "@/components/website/WebsiteExportDialog";
+import { useOptimizePrompt } from "@/hooks/useOptimizePrompt";
 import { projectsRoot } from "@/lib/projectCommands";
+import { parseOverride, resolveOverrideToModel } from "@/lib/promptOverride";
 import {
   type AnalysisResult,
   analyzeUrl,
@@ -44,6 +48,14 @@ export function WebsiteBuilderPage() {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  // "auto" = let the router strategy pick. Otherwise a PascalCase Model
+  // enum string from the ToolDropdown (or resolved from a `/tool` slug).
+  const [model, setModel] = useState<string>("auto");
+  const optimize = useOptimizePrompt({
+    taskKind: "TextGeneration",
+    value: prompt,
+    setValue: setPrompt,
+  });
   const notify = useUiStore((s) => s.notify);
   const currentProject = useProjectStore((s) => s.currentProject);
 
@@ -74,11 +86,40 @@ export function WebsiteBuilderPage() {
     if (!prompt.trim()) return;
     setBusy(true);
     try {
+      // Design-spec order (see phase-9 claude-bridge spec):
+      //   1) parseOverride on the RAW prompt → strip slug
+      //   2) optimize the cleanPrompt (never the slug — Claude must
+      //      not see `/claude` or it may mangle the override)
+      //   3) re-attach the slug to the textarea for display so the
+      //      user's override survives visually
+      //   4) dispatch with the optimized clean text + resolved model
+      const parsed = parseOverride(prompt);
+      let textForDispatch = parsed.cleanPrompt || prompt;
+
+      if (optimize.enabled && parsed.cleanPrompt) {
+        const optimized = await optimize.optimize(parsed.cleanPrompt);
+        if (optimized !== undefined) {
+          textForDispatch = optimized;
+          if (parsed.override && parsed.slugLocation) {
+            const reattached =
+              parsed.slugLocation === "start"
+                ? `/${parsed.override} ${optimized}`
+                : `${optimized} /${parsed.override}`;
+            setPrompt(reattached);
+          }
+        }
+      }
+
+      // Slug always beats ToolDropdown; ToolDropdown beats auto-routing.
+      const overrideModel = parsed.override ? resolveOverrideToModel(parsed.override) : undefined;
+      const finalModel = overrideModel ?? (model === "auto" ? undefined : model);
+
       const result = await generateWebsite({
-        prompt: prompt.trim(),
+        prompt: textForDispatch,
         template,
         module: "website",
         reference: analysis ?? null,
+        model_override: finalModel,
       });
       setProject(result);
       notify({ kind: "success", message: "Generated", detail: result.summary });
@@ -202,6 +243,16 @@ export function WebsiteBuilderPage() {
           onValueChange={setPrompt}
           rows={3}
         />
+        <div className="flex items-center gap-2">
+          <ToolDropdown taskKind="TextGeneration" value={model} onChange={setModel} />
+          <OptimizeToggle
+            enabled={optimize.enabled}
+            onToggle={optimize.setEnabled}
+            busy={optimize.busy}
+            canUndo={optimize.canUndo}
+            onUndo={optimize.undo}
+          />
+        </div>
         <div className="flex items-center justify-between">
           <span className="font-mono text-2xs text-neutral-dark-500 tracking-label uppercase">
             Generated files are editable live in the preview below.

@@ -67,6 +67,7 @@ mod tests {
             reference: None,
             image_path: None,
             module: "website".into(),
+            model_override: None,
         }
     }
 

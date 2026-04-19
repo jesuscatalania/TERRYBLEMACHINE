@@ -49,6 +49,7 @@ mod tests {
                 prompt: "coffee".into(),
                 template: StoryboardTemplate::Commercial,
                 module: "video".into(),
+                model_override: None,
             })
             .await
             .unwrap();
@@ -65,6 +66,7 @@ mod tests {
                 prompt: "  ".into(),
                 template: StoryboardTemplate::Commercial,
                 module: "video".into(),
+                model_override: None,
             })
             .await
             .unwrap_err();

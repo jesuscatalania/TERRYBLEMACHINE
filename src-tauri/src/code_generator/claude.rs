@@ -70,7 +70,7 @@ impl CodeGenerator for ClaudeCodeGenerator {
             complexity: Complexity::Complex,
             prompt: prompt.clone(),
             payload: serde_json::Value::Null,
-            model_override: None,
+            model_override: input.model_override,
         };
 
         let response = self
@@ -190,6 +190,7 @@ mod tests {
             reference: None,
             image_path: None,
             module: "website".into(),
+            model_override: None,
         }
     }
 

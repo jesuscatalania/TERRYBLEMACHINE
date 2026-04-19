@@ -4,10 +4,14 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { LoadingButton } from "@/components/ui/LoadingButton";
+import { OptimizeToggle } from "@/components/ui/OptimizeToggle";
+import { ToolDropdown } from "@/components/ui/ToolDropdown";
 import { RenderExportDialog, type RenderSettings } from "@/components/video/RenderExportDialog";
 import { SegmentList } from "@/components/video/SegmentList";
 import { StoryboardEditor } from "@/components/video/StoryboardEditor";
+import { useOptimizePrompt } from "@/hooks/useOptimizePrompt";
 import { type AssemblyResult, assembleVideo } from "@/lib/assemblyCommands";
+import { parseOverride, resolveOverrideToModel } from "@/lib/promptOverride";
 import { renderRemotion } from "@/lib/remotionCommands";
 import {
   generateStoryboard,
@@ -27,6 +31,16 @@ export function VideoPage() {
   const [exportOpen, setExportOpen] = useState(false);
   const [renderResult, setRenderResult] = useState<AssemblyResult | null>(null);
   const [renderBusy, setRenderBusy] = useState(false);
+  // "auto" = let the router strategy pick. Otherwise a PascalCase Model
+  // enum string from the ToolDropdown (or resolved from a `/tool` slug).
+  // Only wired to the storyboard-from-prompt flow; per-segment generation
+  // remains auto-routed (future work).
+  const [model, setModel] = useState<string>("auto");
+  const optimize = useOptimizePrompt({
+    taskKind: "TextToVideo",
+    value: prompt,
+    setValue: setPrompt,
+  });
   // Re-entrancy guard for the "Generate segments" loop. Without it, a
   // double-click launches two concurrent iterations over the same list
   // and each segment gets POSTed twice.
@@ -54,14 +68,40 @@ export function VideoPage() {
   }, [storyboard, addSegment]);
 
   async function handleGenerate() {
-    const trimmed = prompt.trim();
-    if (!trimmed) return;
+    if (!prompt.trim()) return;
     setBusy(true);
     try {
+      // Design-spec order (see phase-9 claude-bridge spec):
+      //   1) parseOverride on the RAW prompt → strip slug
+      //   2) optimize the cleanPrompt (never the slug — Claude must
+      //      not see `/kling` or it may mangle the override)
+      //   3) re-attach the slug to the input for display
+      //   4) dispatch with the optimized clean text + resolved model
+      const parsed = parseOverride(prompt);
+      let textForDispatch = parsed.cleanPrompt || prompt;
+
+      if (optimize.enabled && parsed.cleanPrompt) {
+        const optimized = await optimize.optimize(parsed.cleanPrompt);
+        if (optimized !== undefined) {
+          textForDispatch = optimized;
+          if (parsed.override && parsed.slugLocation) {
+            const reattached =
+              parsed.slugLocation === "start"
+                ? `/${parsed.override} ${optimized}`
+                : `${optimized} /${parsed.override}`;
+            setPrompt(reattached);
+          }
+        }
+      }
+
+      const overrideModel = parsed.override ? resolveOverrideToModel(parsed.override) : undefined;
+      const finalModel = overrideModel ?? (model === "auto" ? undefined : model);
+
       const sb = await generateStoryboard({
-        prompt: trimmed,
+        prompt: textForDispatch,
         template,
         module: "video",
+        model_override: finalModel,
       });
       setStoryboard(sb);
       notify({
@@ -184,6 +224,16 @@ export function VideoPage() {
           <span className="font-mono text-2xs text-accent-500 uppercase tracking-label-wide">
             MOD—04 · VIDEO
           </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <ToolDropdown taskKind="TextToVideo" value={model} onChange={setModel} />
+          <OptimizeToggle
+            enabled={optimize.enabled}
+            onToggle={optimize.setEnabled}
+            busy={optimize.busy}
+            canUndo={optimize.canUndo}
+            onUndo={optimize.undo}
+          />
         </div>
         <div className="flex items-end gap-2">
           <div className="flex-1">

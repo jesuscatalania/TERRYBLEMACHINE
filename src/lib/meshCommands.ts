@@ -8,6 +8,13 @@ import { invoke } from "@tauri-apps/api/core";
 export interface MeshTextInput {
   prompt: string;
   module?: string;
+  /**
+   * PascalCase Model enum variant (e.g. `"MeshyText3D"`), or undefined to
+   * let the router's strategy pick. Resolved from either the Tool
+   * dropdown or a `/tool` prompt override. Sent as snake_case since the
+   * Rust `MeshTextInput` struct keeps field names as-is.
+   */
+  model_override?: string;
 }
 
 /**

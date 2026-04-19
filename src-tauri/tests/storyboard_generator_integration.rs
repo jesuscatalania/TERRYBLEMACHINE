@@ -71,6 +71,7 @@ async fn generates_storyboard_from_text() {
             prompt: "coffee shop ad".into(),
             template: StoryboardTemplate::Commercial,
             module: "video".into(),
+            model_override: None,
         })
         .await
         .unwrap();
@@ -87,6 +88,7 @@ async fn rejects_empty_prompt() {
             prompt: "   ".into(),
             template: StoryboardTemplate::Commercial,
             module: "video".into(),
+            model_override: None,
         })
         .await
         .unwrap_err();

@@ -163,12 +163,17 @@ impl LogoPipeline for RouterLogoPipeline {
         }
         let count = input.count.clamp(1, 10);
         let prompt = build_variant_prompt(&input);
+        // `Model` is `Copy`, so capturing once and reassigning per-iteration
+        // avoids any Arc/Clone dance while keeping every spawned request
+        // independent.
+        let override_capture = input.model_override;
 
         // Build the futures eagerly so join_all drives them concurrently.
         let mut futures = Vec::with_capacity(count as usize);
         for seed in 0..count {
             let router = Arc::clone(&self.router);
             let prompt = prompt.clone();
+            let override_clone = override_capture;
             futures.push(async move {
                 let req = AiRequest {
                     id: uuid::Uuid::new_v4().to_string(),
@@ -177,7 +182,7 @@ impl LogoPipeline for RouterLogoPipeline {
                     complexity: Complexity::Medium,
                     prompt,
                     payload: json!({ "seed": seed }),
-                    model_override: None,
+                    model_override: override_clone,
                 };
                 let resp = router.route(req).await.map_err(router_to_pipeline_err)?;
                 let url = extract_logo_url(&resp).ok_or(LogoPipelineError::NoOutput)?;
@@ -251,6 +256,7 @@ mod tests {
                 count: 3,
                 palette: None,
                 module: "typography".into(),
+                model_override: None,
             })
             .await
             .expect_err("empty prompt must be rejected before routing");
@@ -278,6 +284,7 @@ mod tests {
             count: 1,
             palette: Some("  monochrome ".into()),
             module: "typography".into(),
+            model_override: None,
         });
         assert!(p.starts_with("Acme Corp. Style: "));
         assert!(p.ends_with("Palette: monochrome"));
@@ -291,6 +298,7 @@ mod tests {
             count: 1,
             palette: Some("   ".into()),
             module: "typography".into(),
+            model_override: None,
         });
         assert!(!p.contains("Palette"));
     }

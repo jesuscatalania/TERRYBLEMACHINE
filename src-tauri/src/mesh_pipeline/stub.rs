@@ -61,6 +61,7 @@ mod tests {
             .generate_from_text(MeshTextInput {
                 prompt: "a cup".into(),
                 module: None,
+                model_override: None,
             })
             .await
             .unwrap();
@@ -68,6 +69,7 @@ mod tests {
             .generate_from_text(MeshTextInput {
                 prompt: "a cup".into(),
                 module: None,
+                model_override: None,
             })
             .await
             .unwrap();
@@ -83,6 +85,7 @@ mod tests {
             .generate_from_text(MeshTextInput {
                 prompt: "   ".into(),
                 module: None,
+                model_override: None,
             })
             .await
             .unwrap_err();

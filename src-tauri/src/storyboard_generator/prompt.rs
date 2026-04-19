@@ -60,6 +60,7 @@ mod tests {
                 prompt: "Tell a story about a coffee shop".into(),
                 template: StoryboardTemplate::Commercial,
                 module: "video".into(),
+                model_override: None,
             },
             None,
         );
@@ -74,6 +75,7 @@ mod tests {
                 prompt: "Moody rainy street".into(),
                 template: StoryboardTemplate::Custom,
                 module: "video".into(),
+                model_override: None,
             },
             None,
         );
@@ -87,6 +89,7 @@ mod tests {
                 prompt: "x".into(),
                 template: StoryboardTemplate::Custom,
                 module: "video".into(),
+                model_override: None,
             },
             None,
         );

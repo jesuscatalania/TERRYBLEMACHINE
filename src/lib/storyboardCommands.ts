@@ -11,6 +11,13 @@ export interface StoryboardInput {
   prompt: string;
   template?: StoryboardTemplate;
   module?: string;
+  /**
+   * PascalCase Model enum variant (e.g. `"FalKlingV2Master"`), or
+   * undefined to let the router's strategy pick. Resolved from either
+   * the Tool dropdown or a `/tool` prompt override. Sent as snake_case
+   * since the Rust `StoryboardInput` struct keeps field names as-is.
+   */
+  model_override?: string;
 }
 
 export interface Shot {

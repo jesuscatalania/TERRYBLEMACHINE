@@ -13,6 +13,8 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::ai_router::Model;
+
 // ─── Style ────────────────────────────────────────────────────────────
 
 /// Logo design archetype. Feeds into the prompt via [`LogoStyle::brief`] so
@@ -64,6 +66,13 @@ pub struct LogoInput {
     /// Module tag for taste-engine context matching (`"typography"`).
     #[serde(default = "default_module")]
     pub module: String,
+    /// Optional model slug override from UI (ToolDropdown or `/tool`
+    /// prefix). PascalCase variant name — matches `Model`'s default
+    /// Serde repr (e.g. `"IdeogramV3"`). `None` means the router
+    /// strategy picks the primary model. Every variant in the resulting
+    /// spawn burst receives this override.
+    #[serde(default)]
+    pub model_override: Option<Model>,
 }
 
 fn default_count() -> u32 {
@@ -121,4 +130,23 @@ pub trait LogoPipeline: Send + Sync {
         &self,
         input: LogoInput,
     ) -> Result<Vec<LogoVariant>, LogoPipelineError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn logo_input_accepts_model_override() {
+        let json = r#"{"prompt":"acme","model_override":"IdeogramV3"}"#;
+        let parsed: LogoInput = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.model_override, Some(Model::IdeogramV3));
+    }
+
+    #[test]
+    fn logo_input_defaults_model_override_to_none() {
+        let json = r#"{"prompt":"acme"}"#;
+        let parsed: LogoInput = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.model_override, None);
+    }
 }

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -32,6 +32,7 @@ vi.mock("@/lib/assemblyCommands", () => ({
   assembleVideo: vi.fn(),
 }));
 
+import { generateStoryboard } from "@/lib/storyboardCommands";
 import { generateVideoFromText } from "@/lib/videoCommands";
 import { VideoPage } from "@/pages/Video";
 import { useVideoStore } from "@/stores/videoStore";
@@ -147,6 +148,24 @@ describe("VideoPage", () => {
     await waitFor(() => {
       const seg = useVideoStore.getState().segments[0];
       expect(seg?.video_url).toBe("file:///tmp/seg.mp4");
+    });
+  });
+
+  it("parses `/kling sunrise timelapse` prompt: model_override=FalKlingV2Master, cleanPrompt=sunrise timelapse", async () => {
+    render(
+      <MemoryRouter>
+        <VideoPage />
+      </MemoryRouter>,
+    );
+    fireEvent.change(screen.getByLabelText(/describe the video/i), {
+      target: { value: "/kling sunrise timelapse" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /generate storyboard/i }));
+    await waitFor(() => expect(generateStoryboard).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(generateStoryboard).mock.calls[0]?.[0]).toMatchObject({
+      prompt: "sunrise timelapse",
+      module: "video",
+      model_override: "FalKlingV2Master",
     });
   });
 });

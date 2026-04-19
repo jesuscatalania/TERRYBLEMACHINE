@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::ai_router::Model;
 use crate::website_analyzer::AnalysisResult;
 
 use super::templates::Template;
@@ -26,6 +27,12 @@ pub struct GenerationInput {
     /// `meingeschmack/`. Defaults to `"website"`.
     #[serde(default = "default_module")]
     pub module: String,
+    /// Optional model slug override from UI (ToolDropdown or `/tool`
+    /// prefix). PascalCase variant name — matches `Model`'s default
+    /// Serde repr (e.g. `"ClaudeSonnet"`). `None` means the router
+    /// strategy picks the primary model.
+    #[serde(default)]
+    pub model_override: Option<Model>,
 }
 
 fn default_module() -> String {
@@ -72,4 +79,23 @@ pub enum CodeGenError {
 #[async_trait]
 pub trait CodeGenerator: Send + Sync {
     async fn generate(&self, input: GenerationInput) -> Result<GeneratedProject, CodeGenError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generation_input_accepts_model_override() {
+        let json = r#"{"prompt":"a landing page","model_override":"ClaudeSonnet"}"#;
+        let parsed: GenerationInput = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.model_override, Some(Model::ClaudeSonnet));
+    }
+
+    #[test]
+    fn generation_input_defaults_model_override_to_none() {
+        let json = r#"{"prompt":"a landing page"}"#;
+        let parsed: GenerationInput = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.model_override, None);
+    }
 }

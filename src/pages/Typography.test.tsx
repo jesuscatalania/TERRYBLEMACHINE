@@ -1,14 +1,19 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/logoCommands", () => ({
-  generateLogoVariants: vi.fn(),
+  generateLogoVariants: vi.fn(async () => []),
 }));
 
+import { generateLogoVariants } from "@/lib/logoCommands";
 import { TypographyPage } from "@/pages/Typography";
 
 describe("TypographyPage", () => {
+  beforeEach(() => {
+    vi.mocked(generateLogoVariants).mockClear();
+  });
+
   it("renders the module banner", () => {
     render(
       <MemoryRouter>
@@ -53,5 +58,23 @@ describe("TypographyPage", () => {
       </MemoryRouter>,
     );
     expect(screen.getByText(/No logos yet/i)).toBeInTheDocument();
+  });
+
+  it("parses `/ideogram bold sans` prompt: model_override=IdeogramV3, cleanPrompt=bold sans", async () => {
+    render(
+      <MemoryRouter>
+        <TypographyPage />
+      </MemoryRouter>,
+    );
+    fireEvent.change(screen.getByLabelText(/describe the logo/i), {
+      target: { value: "/ideogram bold sans" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /generate 6 variants/i }));
+    await waitFor(() => expect(generateLogoVariants).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(generateLogoVariants).mock.calls[0]?.[0]).toMatchObject({
+      prompt: "bold sans",
+      module: "typography",
+      model_override: "IdeogramV3",
+    });
   });
 });

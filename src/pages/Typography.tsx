@@ -6,8 +6,12 @@ import { TextLogoControls, type TextStyle } from "@/components/typography/TextLo
 import { TypographyHeader } from "@/components/typography/TypographyHeader";
 import { Button } from "@/components/ui/Button";
 import { LoadingButton } from "@/components/ui/LoadingButton";
+import { OptimizeToggle } from "@/components/ui/OptimizeToggle";
+import { ToolDropdown } from "@/components/ui/ToolDropdown";
+import { useOptimizePrompt } from "@/hooks/useOptimizePrompt";
 import { type BrandKitInput, exportBrandKit } from "@/lib/brandKitCommands";
 import { generateLogoVariants, type LogoStyle, type LogoVariant } from "@/lib/logoCommands";
+import { parseOverride, resolveOverrideToModel } from "@/lib/promptOverride";
 import { vectorizeImage } from "@/lib/vectorizerCommands";
 import { useProjectStore } from "@/stores/projectStore";
 import { useUiStore } from "@/stores/uiStore";
@@ -41,6 +45,14 @@ export function TypographyPage() {
   // catches that edge case without needing an onDispose callback.
   const [vectorized, setVectorized] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  // "auto" = let the router strategy pick. Otherwise a PascalCase Model
+  // enum string from the ToolDropdown (or resolved from a `/tool` slug).
+  const [model, setModel] = useState<string>("auto");
+  const optimize = useOptimizePrompt({
+    taskKind: "Logo",
+    value: prompt,
+    setValue: setPrompt,
+  });
   const editorRef = useRef<SvgEditorHandle>(null);
   // Request-id token for vectorize. User clicks variant A → Vectorize →
   // clicks variant B mid-flight → second Vectorize; whichever returns last
@@ -58,12 +70,39 @@ export function TypographyPage() {
     if (!prompt.trim()) return;
     setBusy(true);
     try {
+      // Design-spec order (see phase-9 claude-bridge spec):
+      //   1) parseOverride on the RAW prompt → strip slug
+      //   2) optimize the cleanPrompt (never the slug — Claude must
+      //      not see `/ideogram` or it may mangle the override)
+      //   3) re-attach the slug to the input for display
+      //   4) dispatch with the optimized clean text + resolved model
+      const parsed = parseOverride(prompt);
+      let textForDispatch = parsed.cleanPrompt || prompt;
+
+      if (optimize.enabled && parsed.cleanPrompt) {
+        const optimized = await optimize.optimize(parsed.cleanPrompt);
+        if (optimized !== undefined) {
+          textForDispatch = optimized;
+          if (parsed.override && parsed.slugLocation) {
+            const reattached =
+              parsed.slugLocation === "start"
+                ? `/${parsed.override} ${optimized}`
+                : `${optimized} /${parsed.override}`;
+            setPrompt(reattached);
+          }
+        }
+      }
+
+      const overrideModel = parsed.override ? resolveOverrideToModel(parsed.override) : undefined;
+      const finalModel = overrideModel ?? (model === "auto" ? undefined : model);
+
       const results = await generateLogoVariants({
-        prompt: prompt.trim(),
+        prompt: textForDispatch,
         style,
         count: 6,
         palette: palette.trim() || undefined,
         module: "typography",
+        model_override: finalModel,
       });
       setVariants(results);
       notify({ kind: "success", message: `Generated ${results.length} variants` });
@@ -169,6 +208,18 @@ export function TypographyPage() {
         onPaletteChange={setPalette}
         busy={busy}
         onGenerate={handleGenerate}
+        toolsSlot={
+          <>
+            <ToolDropdown taskKind="Logo" value={model} onChange={setModel} />
+            <OptimizeToggle
+              enabled={optimize.enabled}
+              onToggle={optimize.setEnabled}
+              busy={optimize.busy}
+              canUndo={optimize.canUndo}
+              onUndo={optimize.undo}
+            />
+          </>
+        }
       />
 
       <div className="grid min-h-0 grid-cols-[1fr_18rem]">

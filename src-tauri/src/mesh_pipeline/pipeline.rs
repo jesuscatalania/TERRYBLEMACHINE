@@ -117,7 +117,7 @@ impl MeshPipeline for RouterMeshPipeline {
             complexity: Complexity::Medium,
             prompt: input.prompt,
             payload: json!({}),
-            model_override: None,
+            model_override: input.model_override,
         };
         let resp = self
             .router
@@ -219,6 +219,7 @@ mod tests {
             .generate_from_text(MeshTextInput {
                 prompt: "   ".into(),
                 module: None,
+                model_override: None,
             })
             .await
             .expect_err("empty prompt must be rejected before routing");
