@@ -5,6 +5,7 @@ import { SvgEditor, type SvgEditorHandle } from "@/components/typography/SvgEdit
 import { TextLogoControls, type TextStyle } from "@/components/typography/TextLogoControls";
 import { TypographyHeader } from "@/components/typography/TypographyHeader";
 import { Button } from "@/components/ui/Button";
+import { LoadingButton } from "@/components/ui/LoadingButton";
 import { type BrandKitInput, exportBrandKit } from "@/lib/brandKitCommands";
 import { generateLogoVariants, type LogoStyle, type LogoVariant } from "@/lib/logoCommands";
 import { vectorizeImage } from "@/lib/vectorizerCommands";
@@ -47,7 +48,6 @@ export function TypographyPage() {
   const selectedVariant = selectedUrl
     ? (variants.find((v) => v.url === selectedUrl) ?? null)
     : null;
-  const canVectorize = Boolean(selectedVariant?.local_path) && !vectorizing;
 
   async function handleGenerate() {
     if (!prompt.trim()) return;
@@ -163,9 +163,14 @@ export function TypographyPage() {
           {selectedVariant ? (
             <>
               <div className="flex flex-wrap items-center gap-2">
-                <Button variant="primary" onClick={handleVectorize} disabled={!canVectorize}>
-                  {vectorizing ? "Vectorizing…" : "Vectorize"}
-                </Button>
+                <LoadingButton
+                  variant="primary"
+                  onClick={handleVectorize}
+                  disabled={!selectedVariant?.local_path}
+                  loading={vectorizing}
+                >
+                  Vectorize
+                </LoadingButton>
                 {/* No visible <label>: the "Logo text" placeholder is self-
                     descriptive and the 18rem panel is tight on vertical
                     space. The aria-label keeps the input accessible to

@@ -15,6 +15,7 @@ import { TextControls } from "@/components/graphic2d/TextControls";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Input } from "@/components/ui/Input";
+import { LoadingButton } from "@/components/ui/LoadingButton";
 import { generateVariants, type ImageResult, inpaintImage, isDataUrl } from "@/lib/imageCommands";
 import { useUiStore } from "@/stores/uiStore";
 
@@ -276,10 +277,15 @@ export function Graphic2DPage() {
               onValueChange={setPrompt}
             />
           </div>
-          <Button variant="primary" onClick={generate} disabled={!prompt.trim() || busy}>
+          <LoadingButton
+            variant="primary"
+            onClick={generate}
+            disabled={!prompt.trim()}
+            loading={busy}
+          >
             <Sparkles className="h-3 w-3" strokeWidth={1.5} aria-hidden="true" />
-            {busy ? "Generating…" : "Generate 4 variants"}
-          </Button>
+            Generate 4 variants
+          </LoadingButton>
         </div>
 
         {variants.length > 0 ? (
@@ -552,14 +558,15 @@ export function Graphic2DPage() {
               <Button variant="secondary" size="sm" onClick={cancelInpaint} disabled={inpaintBusy}>
                 Cancel
               </Button>
-              <Button
+              <LoadingButton
                 variant="primary"
                 size="sm"
                 onClick={submitInpaint}
-                disabled={!inpaintPrompt.trim() || inpaintBusy}
+                disabled={!inpaintPrompt.trim()}
+                loading={inpaintBusy}
               >
-                {inpaintBusy ? "Applying…" : "Apply inpaint"}
-              </Button>
+                Apply inpaint
+              </LoadingButton>
             </div>
           </div>
         </div>

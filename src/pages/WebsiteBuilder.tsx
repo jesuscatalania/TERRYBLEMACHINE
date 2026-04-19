@@ -2,6 +2,7 @@ import { Laptop, Smartphone, Tablet } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
+import { LoadingButton } from "@/components/ui/LoadingButton";
 import { Tabs } from "@/components/ui/Tabs";
 import { CodeEditor } from "@/components/website/CodeEditor";
 import { DevicePreview, type DeviceSize } from "@/components/website/DevicePreview";
@@ -203,16 +204,22 @@ export function WebsiteBuilderPage() {
             Generated files are editable live in the preview below.
           </span>
           <div className="flex items-center gap-2">
-            <Button
+            <LoadingButton
               variant="secondary"
               onClick={() => setExportOpen(true)}
-              disabled={!project || exporting}
+              disabled={!project}
+              loading={exporting}
             >
-              {exporting ? "Exporting…" : "Export"}
-            </Button>
-            <Button variant="primary" onClick={submit} disabled={!prompt.trim() || busy}>
-              {busy ? "Generating…" : "Generate"}
-            </Button>
+              Export
+            </LoadingButton>
+            <LoadingButton
+              variant="primary"
+              onClick={submit}
+              disabled={!prompt.trim()}
+              loading={busy}
+            >
+              Generate
+            </LoadingButton>
           </div>
         </div>
       </div>

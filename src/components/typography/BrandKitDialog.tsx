@@ -1,6 +1,7 @@
 import { type FormEvent, useId, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { LoadingButton } from "@/components/ui/LoadingButton";
 import { Modal } from "@/components/ui/Modal";
 import { GOOGLE_FONTS, type GoogleFont } from "@/lib/googleFonts";
 
@@ -122,15 +123,16 @@ export function BrandKitDialog({
           >
             Cancel
           </Button>
-          <Button
+          <LoadingButton
             variant="primary"
             size="sm"
             type="submit"
             form="brand-kit-form"
-            disabled={!canSubmit}
+            disabled={brandName.trim().length === 0 || destination.trim().length === 0}
+            loading={busy}
           >
-            {busy ? "Exporting…" : "Export"}
-          </Button>
+            Export
+          </LoadingButton>
         </>
       }
     >

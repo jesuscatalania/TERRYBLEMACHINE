@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { LoadingButton } from "@/components/ui/LoadingButton";
 
 export interface AssistPopoverProps {
   /** The currently selected code — displayed read-only for context. */
@@ -66,9 +67,15 @@ export function AssistPopover({ selection, onSubmit, onClose, busy }: AssistPopo
           <Button variant="ghost" size="sm" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button variant="primary" size="sm" onClick={handleApply} disabled={!canApply}>
-            {busy ? "Thinking…" : "Apply"}
-          </Button>
+          <LoadingButton
+            variant="primary"
+            size="sm"
+            onClick={handleApply}
+            disabled={trimmed.length === 0}
+            loading={busy}
+          >
+            Apply
+          </LoadingButton>
         </div>
       </div>
     </div>

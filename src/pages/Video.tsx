@@ -3,6 +3,7 @@ import { Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { LoadingButton } from "@/components/ui/LoadingButton";
 import { RenderExportDialog, type RenderSettings } from "@/components/video/RenderExportDialog";
 import { SegmentList } from "@/components/video/SegmentList";
 import { StoryboardEditor } from "@/components/video/StoryboardEditor";
@@ -201,10 +202,15 @@ export function VideoPage() {
               <option value="custom">Custom</option>
             </select>
           </div>
-          <Button variant="primary" onClick={handleGenerate} disabled={!prompt.trim() || busy}>
+          <LoadingButton
+            variant="primary"
+            onClick={handleGenerate}
+            disabled={!prompt.trim()}
+            loading={busy}
+          >
             <Sparkles className="h-3 w-3" strokeWidth={1.5} aria-hidden="true" />
-            {busy ? "Generating…" : "Generate storyboard"}
-          </Button>
+            Generate storyboard
+          </LoadingButton>
         </div>
       </div>
 
@@ -222,14 +228,15 @@ export function VideoPage() {
           >
             Generate segments
           </Button>
-          <Button
+          <LoadingButton
             variant="primary"
             size="sm"
             onClick={() => setExportOpen(true)}
-            disabled={segments.length === 0 || renderBusy}
+            disabled={segments.length === 0}
+            loading={renderBusy}
           >
-            {renderBusy ? "Rendering…" : "Export video"}
-          </Button>
+            Export video
+          </LoadingButton>
           <Button
             variant="ghost"
             size="sm"

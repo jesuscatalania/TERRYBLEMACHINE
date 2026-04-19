@@ -51,9 +51,10 @@ describe("AssistPopover", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("shows 'Thinking…' and disables both buttons while busy", () => {
+  it("shows loading spinner on Apply and disables both buttons while busy", () => {
     render(<AssistPopover selection="x" onSubmit={() => {}} onClose={() => {}} busy={true} />);
-    expect(screen.getByRole("button", { name: /thinking/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /apply/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: /cancel/i })).toBeDisabled();
+    expect(screen.getByTestId("loading-spinner")).toBeInTheDocument();
   });
 });

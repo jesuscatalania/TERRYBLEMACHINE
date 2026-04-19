@@ -3,6 +3,7 @@ import { MODULES } from "@/components/shell/modules";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Input, Textarea } from "@/components/ui/Input";
+import { LoadingButton } from "@/components/ui/LoadingButton";
 import { Modal } from "@/components/ui/Modal";
 import type { NewProjectInput } from "@/lib/projectCommands";
 import { isProjectIpcError } from "@/lib/projectCommands";
@@ -90,15 +91,16 @@ export function NewProjectDialog({
           >
             Cancel
           </Button>
-          <Button
+          <LoadingButton
             variant="primary"
             size="sm"
             type="submit"
             form="new-project-form"
-            disabled={!name.trim() || busy}
+            disabled={!name.trim()}
+            loading={busy}
           >
-            {busy ? "Creating…" : "Create"}
-          </Button>
+            Create
+          </LoadingButton>
         </>
       }
     >

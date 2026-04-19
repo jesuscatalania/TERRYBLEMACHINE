@@ -1,6 +1,6 @@
 import { Sparkles } from "lucide-react";
-import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { LoadingButton } from "@/components/ui/LoadingButton";
 import type { LogoStyle } from "@/lib/logoCommands";
 
 /**
@@ -73,10 +73,15 @@ export function TypographyHeader({
             onValueChange={onPaletteChange}
           />
         </div>
-        <Button variant="primary" onClick={onGenerate} disabled={!prompt.trim() || busy}>
+        <LoadingButton
+          variant="primary"
+          onClick={onGenerate}
+          disabled={!prompt.trim()}
+          loading={busy}
+        >
           <Sparkles className="h-3 w-3" strokeWidth={1.5} aria-hidden="true" />
-          {busy ? "Generating…" : "Generate 6 variants"}
-        </Button>
+          Generate 6 variants
+        </LoadingButton>
       </div>
     </div>
   );

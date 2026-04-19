@@ -16,6 +16,7 @@ import {
 } from "@/components/graphic3d/ThreeExportDialog";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { LoadingButton } from "@/components/ui/LoadingButton";
 import { type DepthResult, generateDepth } from "@/lib/depthCommands";
 import {
   exportMesh,
@@ -209,13 +210,14 @@ export function Graphic3DPage() {
               }}
             />
           </div>
-          <Button
+          <LoadingButton
             variant="secondary"
             onClick={generateDepthForImage}
-            disabled={!imageUrl.trim() || depthBusy}
+            disabled={!imageUrl.trim()}
+            loading={depthBusy}
           >
-            {depthBusy ? "Generating…" : "Generate depth"}
-          </Button>
+            Generate depth
+          </LoadingButton>
         </div>
         {depthBusy ? (
           <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
@@ -223,13 +225,14 @@ export function Graphic3DPage() {
           </span>
         ) : null}
         <div className="flex items-end gap-2">
-          <Button
+          <LoadingButton
             variant="secondary"
             onClick={generate3DFromImage}
-            disabled={!imageUrl.trim() || imageMeshBusy}
+            disabled={!imageUrl.trim()}
+            loading={imageMeshBusy}
           >
-            {imageMeshBusy ? "Generating…" : "Generate 3D from image"}
-          </Button>
+            Generate 3D from image
+          </LoadingButton>
           <label className="flex items-center gap-2 text-2xs text-neutral-dark-300">
             <input
               type="checkbox"
@@ -255,13 +258,14 @@ export function Graphic3DPage() {
               onValueChange={setMeshPrompt}
             />
           </div>
-          <Button
+          <LoadingButton
             variant="secondary"
             onClick={generate3D}
-            disabled={!meshPrompt.trim() || meshBusy}
+            disabled={!meshPrompt.trim()}
+            loading={meshBusy}
           >
-            {meshBusy ? "Generating…" : "Generate 3D"}
-          </Button>
+            Generate 3D
+          </LoadingButton>
         </div>
         {meshBusy ? (
           <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">

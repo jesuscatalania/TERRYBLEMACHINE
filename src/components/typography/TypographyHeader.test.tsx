@@ -36,13 +36,14 @@ describe("TypographyHeader", () => {
     const { rerender } = render(<TypographyHeader {...props} prompt="" />);
     expect(screen.getByRole("button", { name: /Generate/i })).toBeDisabled();
     rerender(<TypographyHeader {...props} prompt="hello" busy={true} />);
-    expect(screen.getByRole("button", { name: /Generating/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Generate/i })).toBeDisabled();
     rerender(<TypographyHeader {...props} prompt="hello" busy={false} />);
     expect(screen.getByRole("button", { name: /Generate/i })).toBeEnabled();
   });
 
-  it("Generate label flips to 'Generating…' while busy", () => {
+  it("shows the loading spinner while busy (Generate label stays constant)", () => {
     render(<TypographyHeader {...props} prompt="hello" busy={true} />);
-    expect(screen.getByRole("button", { name: /Generating/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Generate 6 variants/i })).toBeInTheDocument();
+    expect(screen.getByTestId("loading-spinner")).toBeInTheDocument();
   });
 });
