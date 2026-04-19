@@ -13,13 +13,25 @@ export function useOptimizePrompt({ taskKind, value, setValue }: UseOptimizeProm
   const [busy, setBusy] = useState(false);
   const [originalForUndo, setOriginalForUndo] = useState<string | null>(null);
 
-  async function optimize(): Promise<void> {
-    if (busy) return;
+  /**
+   * Run optimize-prompt against the current `value`. Resolves to the
+   * optimized string on success, or `undefined` if a call was rejected
+   * because an optimize run is already in flight.
+   *
+   * Returning the optimized text (in addition to firing `setValue`) lets
+   * callers feed the result straight into the next step of an async
+   * pipeline without waiting for React state to commit — useful for the
+   * common "optimize then submit" flow where reading `value` in the same
+   * tick would still observe the pre-optimize string.
+   */
+  async function optimize(): Promise<string | undefined> {
+    if (busy) return undefined;
     setBusy(true);
     try {
       const optimized = await optimizePrompt(value, taskKind);
       setOriginalForUndo(value);
       setValue(optimized);
+      return optimized;
     } finally {
       setBusy(false);
     }

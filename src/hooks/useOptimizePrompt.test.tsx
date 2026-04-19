@@ -18,7 +18,7 @@ describe("useOptimizePrompt", () => {
     expect(result.current.canUndo).toBe(false);
   });
 
-  it("optimize replaces value + arms undo", async () => {
+  it("optimize replaces value + arms undo + returns the optimized string", async () => {
     let value = "a sunset";
     const setValue = vi.fn((next: string) => {
       value = next;
@@ -27,10 +27,12 @@ describe("useOptimizePrompt", () => {
     const { result } = renderHook(() =>
       useOptimizePrompt({ taskKind: "ImageGeneration", value, setValue }),
     );
+    let returned: string | undefined;
     await act(async () => {
-      await result.current.optimize();
+      returned = await result.current.optimize();
     });
     expect(setValue).toHaveBeenCalledWith("warm sunset over berlin, 35mm film grain");
+    expect(returned).toBe("warm sunset over berlin, 35mm film grain");
     expect(result.current.canUndo).toBe(true);
   });
 

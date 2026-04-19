@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::ai_router::Complexity;
+use crate::ai_router::{Complexity, Model};
 
 // ─── Inputs ────────────────────────────────────────────────────────────
 
@@ -14,6 +14,12 @@ pub struct Text2ImageInput {
     /// Module tag for taste-engine context matching (`"graphic2d"`).
     #[serde(default = "default_module")]
     pub module: String,
+    /// Optional model slug override from UI (ToolDropdown or `/tool`
+    /// prefix). PascalCase variant name — matches `Model`'s default
+    /// Serde repr (e.g. `"FalFluxPro"`). `None` means router strategy
+    /// picks the primary model.
+    #[serde(default)]
+    pub model_override: Option<Model>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -45,6 +51,11 @@ pub struct GenerateVariantsInput {
     pub complexity: Complexity,
     #[serde(default = "default_module")]
     pub module: String,
+    /// Optional model slug override (same semantics as
+    /// [`Text2ImageInput::model_override`]). Every variant in the
+    /// resulting spawn burst receives this override.
+    #[serde(default)]
+    pub model_override: Option<Model>,
 }
 
 /// Inpainting: replace the masked region of `source_url` with content
@@ -128,4 +139,30 @@ pub trait ImagePipeline: Send + Sync {
         input: GenerateVariantsInput,
     ) -> Result<Vec<ImageResult>, ImagePipelineError>;
     async fn inpaint(&self, input: InpaintInput) -> Result<ImageResult, ImagePipelineError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generate_variants_input_accepts_model_override() {
+        let json = r#"{"prompt":"a cat","model_override":"FalSdxl"}"#;
+        let parsed: GenerateVariantsInput = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.model_override, Some(Model::FalSdxl));
+    }
+
+    #[test]
+    fn generate_variants_input_defaults_model_override_to_none() {
+        let json = r#"{"prompt":"a cat"}"#;
+        let parsed: GenerateVariantsInput = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.model_override, None);
+    }
+
+    #[test]
+    fn text2image_input_accepts_model_override() {
+        let json = r#"{"prompt":"a cat","model_override":"FalFluxPro"}"#;
+        let parsed: Text2ImageInput = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.model_override, Some(Model::FalFluxPro));
+    }
 }

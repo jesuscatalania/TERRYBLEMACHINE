@@ -142,6 +142,7 @@ async fn text_to_image_returns_fal_url() {
             prompt: "abc".into(),
             complexity: Complexity::Medium,
             module: "graphic2d".into(),
+            model_override: None,
         })
         .await
         .expect("text_to_image succeeds");
@@ -294,6 +295,7 @@ async fn variants_yields_requested_count() {
             count: 4,
             complexity: Complexity::Medium,
             module: "graphic2d".into(),
+            model_override: None,
         })
         .await
         .expect("variants succeeds");

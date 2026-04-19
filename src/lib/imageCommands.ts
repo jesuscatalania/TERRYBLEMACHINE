@@ -15,6 +15,13 @@ export interface Text2ImageInput {
   prompt: string;
   complexity?: Complexity;
   module?: string;
+  /**
+   * PascalCase Model enum variant (e.g. `"FalFluxPro"`), or undefined to
+   * let the router's strategy pick. Resolved from either the Tool
+   * dropdown or a `/tool` prompt override. Sent as snake_case since the
+   * Rust input struct keeps field names as-is.
+   */
+  model_override?: string;
 }
 
 export interface GenerateVariantsInput extends Text2ImageInput {

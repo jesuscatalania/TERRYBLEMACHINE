@@ -17,8 +17,12 @@ import { Dropdown } from "@/components/ui/Dropdown";
 import { HelpIcon } from "@/components/ui/HelpIcon";
 import { Input } from "@/components/ui/Input";
 import { LoadingButton } from "@/components/ui/LoadingButton";
+import { OptimizeToggle } from "@/components/ui/OptimizeToggle";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { ToolDropdown } from "@/components/ui/ToolDropdown";
+import { useOptimizePrompt } from "@/hooks/useOptimizePrompt";
 import { generateVariants, type ImageResult, inpaintImage, isDataUrl } from "@/lib/imageCommands";
+import { parseOverride, resolveOverrideToModel } from "@/lib/promptOverride";
 import { useUiStore } from "@/stores/uiStore";
 
 export function Graphic2DPage() {
@@ -47,6 +51,14 @@ export function Graphic2DPage() {
     color: string;
     size: number;
   } | null>(null);
+  // "auto" = let the router strategy pick. Otherwise a PascalCase Model
+  // enum string from the ToolDropdown (or resolved from a `/tool` slug).
+  const [model, setModel] = useState<string>("auto");
+  const optimize = useOptimizePrompt({
+    taskKind: "ImageGeneration",
+    value: prompt,
+    setValue: setPrompt,
+  });
   const notify = useUiStore((s) => s.notify);
 
   // Toggle selection modes on the canvas whenever the dropdown changes.
@@ -74,10 +86,30 @@ export function Graphic2DPage() {
     if (!prompt.trim()) return;
     setBusy(true);
     try {
+      // 1) Optionally run the meta-prompt optimizer. We read the
+      //    optimized text from the return value rather than from
+      //    `prompt` — the setPrompt call hasn't re-rendered yet and our
+      //    closure's `prompt` variable is stale within this tick.
+      let effectivePrompt = prompt;
+      if (optimize.enabled) {
+        const optimized = await optimize.optimize();
+        effectivePrompt = optimized ?? prompt;
+      }
+      // 2) Strip a leading/trailing `/tool` slug (e.g. `/flux cat`) and
+      //    resolve it to a concrete Model. If the user instead picked a
+      //    model from the ToolDropdown, that selection wins only when no
+      //    slug is present (slug always beats dropdown).
+      const parsed = parseOverride(effectivePrompt);
+      const overrideModel = parsed.override ? resolveOverrideToModel(parsed.override) : undefined;
+      const finalModel = overrideModel ?? (model === "auto" ? undefined : model);
+      // 3) If the prompt was *only* a slug (e.g. user typed just "/flux"),
+      //    cleanPrompt is empty — fall back to the pre-parse text so the
+      //    backend doesn't get an empty-prompt error.
       const results = await generateVariants({
-        prompt: prompt.trim(),
+        prompt: parsed.cleanPrompt || effectivePrompt,
         count: 4,
         module: "graphic2d",
+        model_override: finalModel,
       });
       setVariants(results);
       notify({
@@ -268,6 +300,16 @@ export function Graphic2DPage() {
           <span className="font-mono text-2xs text-accent-500 uppercase tracking-label-wide">
             MOD—02 · 2D GRAPHIC
           </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <ToolDropdown taskKind="ImageGeneration" value={model} onChange={setModel} />
+          <OptimizeToggle
+            enabled={optimize.enabled}
+            onToggle={optimize.setEnabled}
+            busy={optimize.busy}
+            canUndo={optimize.canUndo}
+            onUndo={optimize.undo}
+          />
         </div>
         <div className="flex items-end gap-2">
           <div className="flex-1">

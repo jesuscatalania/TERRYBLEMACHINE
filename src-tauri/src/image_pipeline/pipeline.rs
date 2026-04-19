@@ -139,12 +139,13 @@ impl ImagePipeline for RouterImagePipeline {
             return Err(ImagePipelineError::InvalidInput("empty prompt".into()));
         }
         let prompt = self.enrich(&input.prompt, &input.module).await;
-        let req = new_request(
+        let mut req = new_request(
             TaskKind::ImageGeneration,
             input.complexity,
             prompt,
             json!({}),
         );
+        req.model_override = input.model_override;
         let resp = self.dispatch(req).await?;
         response_to_result(resp)
     }
@@ -194,19 +195,25 @@ impl ImagePipeline for RouterImagePipeline {
         }
         let n = input.count.clamp(1, 8) as usize;
         let enriched = self.enrich(&input.prompt, &input.module).await;
+        // `Model` is `Copy`, so capturing once and reassigning per-iteration
+        // avoids any Arc/Clone dance while keeping every spawned request
+        // independent.
+        let override_capture = input.model_override;
 
         let mut futures = Vec::with_capacity(n);
         for _ in 0..n {
             let router = self.router.clone();
             let prompt = enriched.clone();
             let complexity = input.complexity;
+            let override_clone = override_capture;
             futures.push(async move {
-                let req = new_request(
+                let mut req = new_request(
                     TaskKind::ImageGeneration,
                     complexity,
                     prompt,
                     json!({ "variant_seed": uuid::Uuid::new_v4().to_string() }),
                 );
+                req.model_override = override_clone;
                 router.route(req).await
             });
         }

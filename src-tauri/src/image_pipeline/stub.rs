@@ -147,6 +147,7 @@ mod tests {
             prompt: prompt.into(),
             complexity: Complexity::Medium,
             module: "graphic2d".into(),
+            model_override: None,
         }
     }
 
@@ -174,6 +175,7 @@ mod tests {
                 count: 4,
                 complexity: Complexity::Medium,
                 module: "graphic2d".into(),
+                model_override: None,
             })
             .await
             .unwrap();
@@ -185,6 +187,7 @@ mod tests {
                 count: 99,
                 complexity: Complexity::Medium,
                 module: "graphic2d".into(),
+                model_override: None,
             })
             .await
             .unwrap();
