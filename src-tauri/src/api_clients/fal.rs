@@ -191,10 +191,10 @@ impl FalClient {
                 Some("/fal-ai/kling-video/v1.5/standard/image-to-video")
             }
             (Model::FalKlingV2Master, TaskKind::TextToVideo) => {
-                Some("/fal-ai/kling-video/v2-master/text-to-video")
+                Some("/fal-ai/kling-video/v2/master/text-to-video")
             }
             (Model::FalKlingV2Master, TaskKind::ImageToVideo) => {
-                Some("/fal-ai/kling-video/v2-master/image-to-video")
+                Some("/fal-ai/kling-video/v2/master/image-to-video")
             }
             _ => None,
         }
@@ -875,7 +875,7 @@ mod tests {
         let response_url = format!("{}/fal-ai/kling-video/requests/req-v2", server.uri());
 
         Mock::given(method("POST"))
-            .and(path("/fal-ai/kling-video/v2-master/text-to-video"))
+            .and(path("/fal-ai/kling-video/v2/master/text-to-video"))
             .and(header("authorization", "Key fal-test"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "request_id": "req-v2",
