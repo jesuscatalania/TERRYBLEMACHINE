@@ -270,15 +270,17 @@ impl FalClient {
                 }))
             }
             Model::FalKlingV15 | Model::FalKlingV2Master => {
-                // fal's Kling endpoints expect `duration` as a STRING (e.g.
-                // "5" / "10"). Default 5s matches the legacy direct-Kling
-                // client behaviour (`DEFAULT_DURATION_SEC`).
-                let duration = request
+                // fal's Kling endpoints accept ONLY "5" or "10" for
+                // `duration` (422 literal_error for anything else). Storyboard
+                // segments arrive with arbitrary seconds (4, 6, 8…), so snap
+                // to the nearest valid bucket: <=7s → "5", >=8s → "10".
+                let raw_duration = request
                     .payload
                     .get("duration")
                     .and_then(|v| v.as_u64())
                     .map(|v| v as u32)
                     .unwrap_or(5);
+                let duration = if raw_duration <= 7 { "5" } else { "10" };
                 let aspect = request
                     .payload
                     .get("aspect_ratio")
@@ -286,7 +288,7 @@ impl FalClient {
                     .unwrap_or("16:9");
                 let mut body = json!({
                     "prompt": request.prompt,
-                    "duration": duration.to_string(),
+                    "duration": duration,
                     "aspect_ratio": aspect,
                 });
                 if request.task == TaskKind::ImageToVideo {
