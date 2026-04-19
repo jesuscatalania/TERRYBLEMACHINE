@@ -10,6 +10,7 @@ import { OptimizeToggle } from "@/components/ui/OptimizeToggle";
 import { ToolDropdown } from "@/components/ui/ToolDropdown";
 import { useOptimizePrompt } from "@/hooks/useOptimizePrompt";
 import { type BrandKitInput, exportBrandKit } from "@/lib/brandKitCommands";
+import { formatError } from "@/lib/formatError";
 import { generateLogoVariants, type LogoStyle, type LogoVariant } from "@/lib/logoCommands";
 import { parseOverride, resolveOverrideToModel } from "@/lib/promptOverride";
 import { vectorizeImage } from "@/lib/vectorizerCommands";
@@ -110,7 +111,7 @@ export function TypographyPage() {
       notify({
         kind: "error",
         message: "Logo generation failed",
-        detail: err instanceof Error ? err.message : String(err),
+        detail: formatError(err),
       });
     } finally {
       setBusy(false);
@@ -136,7 +137,7 @@ export function TypographyPage() {
       notify({
         kind: "error",
         message: "Vectorize failed",
-        detail: err instanceof Error ? err.message : String(err),
+        detail: formatError(err),
       });
     } finally {
       // Only the winning request flips the vectorizing flag off — a stale
@@ -284,7 +285,7 @@ export function TypographyPage() {
                         notify({
                           kind: "error",
                           message: "Add text failed",
-                          detail: err instanceof Error ? err.message : String(err),
+                          detail: formatError(err),
                         });
                       });
                     }

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { formatError } from "@/lib/formatError";
 import { readProjectHistory, writeProjectHistory } from "@/lib/projectCommands";
 import type { ModuleId } from "@/stores/appStore";
 import { useHistoryStore } from "@/stores/historyStore";
@@ -60,7 +61,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         useUiStore.getState().notify({
           kind: "warning",
           message: "Undo-Verlauf konnte nicht geladen werden",
-          detail: err instanceof Error ? err.message : String(err),
+          detail: formatError(err),
         });
       });
   },
@@ -74,7 +75,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         useUiStore.getState().notify({
           kind: "warning",
           message: "Undo-Verlauf konnte nicht gespeichert werden",
-          detail: err instanceof Error ? err.message : String(err),
+          detail: formatError(err),
         });
       });
     }

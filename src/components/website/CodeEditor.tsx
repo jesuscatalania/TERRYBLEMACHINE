@@ -2,6 +2,7 @@ import Editor, { type Monaco, type OnMount } from "@monaco-editor/react";
 import { useCallback, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Tabs } from "@/components/ui/Tabs";
+import { formatError } from "@/lib/formatError";
 import type { GeneratedFile } from "@/lib/websiteCommands";
 import { AssistPopover } from "./AssistPopover";
 
@@ -130,7 +131,7 @@ export function CodeEditor({ files, onChange, onRequestAssist, onNotify }: CodeE
         ]);
         closeAssist();
       } catch (err) {
-        onNotify?.(err instanceof Error ? err.message : String(err));
+        onNotify?.(formatError(err));
         setAssistBusy(false);
       }
     },

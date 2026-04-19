@@ -22,6 +22,7 @@ import { OptimizeToggle } from "@/components/ui/OptimizeToggle";
 import { ToolDropdown } from "@/components/ui/ToolDropdown";
 import { useOptimizePrompt } from "@/hooks/useOptimizePrompt";
 import { type DepthResult, generateDepth } from "@/lib/depthCommands";
+import { formatError } from "@/lib/formatError";
 import {
   exportMesh,
   generateMeshFromImage,
@@ -73,7 +74,7 @@ export function Graphic3DPage() {
       notify({
         kind: "error",
         message: "Depth generation failed",
-        detail: err instanceof Error ? err.message : String(err),
+        detail: formatError(err),
       });
     } finally {
       setDepthBusy(false);
@@ -122,7 +123,7 @@ export function Graphic3DPage() {
       notify({
         kind: "error",
         message: "3D generation failed",
-        detail: err instanceof Error ? err.message : String(err),
+        detail: formatError(err),
       });
     } finally {
       setMeshBusy(false);
@@ -149,7 +150,7 @@ export function Graphic3DPage() {
       notify({
         kind: "error",
         message: "Image-to-3D failed",
-        detail: err instanceof Error ? err.message : String(err),
+        detail: formatError(err),
       });
     } finally {
       setImageMeshBusy(false);
@@ -178,7 +179,7 @@ export function Graphic3DPage() {
       notify({
         kind: "error",
         message: "GLB export failed",
-        detail: err instanceof Error ? err.message : String(err),
+        detail: formatError(err),
       });
     }
   }

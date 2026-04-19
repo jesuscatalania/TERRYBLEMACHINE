@@ -13,6 +13,7 @@ import {
   type WebsiteExportSettings,
 } from "@/components/website/WebsiteExportDialog";
 import { useOptimizePrompt } from "@/hooks/useOptimizePrompt";
+import { formatError } from "@/lib/formatError";
 import { projectsRoot } from "@/lib/projectCommands";
 import { parseOverride, resolveOverrideToModel } from "@/lib/promptOverride";
 import {
@@ -75,7 +76,7 @@ export function WebsiteBuilderPage() {
       notify({
         kind: "error",
         message: "URL analysis failed",
-        detail: err instanceof Error ? err.message : String(err),
+        detail: formatError(err),
       });
     } finally {
       setAnalyzing(false);
@@ -127,7 +128,7 @@ export function WebsiteBuilderPage() {
       notify({
         kind: "error",
         message: "Generation failed",
-        detail: err instanceof Error ? err.message : String(err),
+        detail: formatError(err),
       });
     } finally {
       setBusy(false);
@@ -181,7 +182,7 @@ export function WebsiteBuilderPage() {
       notify({
         kind: "error",
         message: "Export failed",
-        detail: err instanceof Error ? err.message : String(err),
+        detail: formatError(err),
       });
     } finally {
       setExporting(false);

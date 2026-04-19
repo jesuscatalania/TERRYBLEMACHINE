@@ -21,6 +21,7 @@ import { OptimizeToggle } from "@/components/ui/OptimizeToggle";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { ToolDropdown } from "@/components/ui/ToolDropdown";
 import { useOptimizePrompt } from "@/hooks/useOptimizePrompt";
+import { formatError } from "@/lib/formatError";
 import { generateVariants, type ImageResult, inpaintImage, isDataUrl } from "@/lib/imageCommands";
 import { parseOverride, resolveOverrideToModel } from "@/lib/promptOverride";
 import { useUiStore } from "@/stores/uiStore";
@@ -139,7 +140,7 @@ export function Graphic2DPage() {
       notify({
         kind: "error",
         message: "Generation failed",
-        detail: err instanceof Error ? err.message : String(err),
+        detail: formatError(err),
       });
     } finally {
       setBusy(false);
@@ -153,7 +154,7 @@ export function Graphic2DPage() {
       notify({
         kind: "error",
         message: "Failed to add image",
-        detail: err instanceof Error ? err.message : String(err),
+        detail: formatError(err),
       });
     }
   }
@@ -248,7 +249,7 @@ export function Graphic2DPage() {
       notify({
         kind: "error",
         message: "Inpaint failed",
-        detail: err instanceof Error ? err.message : String(err),
+        detail: formatError(err),
       });
     } finally {
       setInpaintBusy(false);

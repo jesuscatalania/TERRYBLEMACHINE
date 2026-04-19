@@ -11,6 +11,7 @@ import { SegmentList } from "@/components/video/SegmentList";
 import { StoryboardEditor } from "@/components/video/StoryboardEditor";
 import { useOptimizePrompt } from "@/hooks/useOptimizePrompt";
 import { type AssemblyResult, assembleVideo } from "@/lib/assemblyCommands";
+import { formatError } from "@/lib/formatError";
 import { parseOverride, resolveOverrideToModel } from "@/lib/promptOverride";
 import { renderRemotion } from "@/lib/remotionCommands";
 import {
@@ -112,7 +113,7 @@ export function VideoPage() {
       notify({
         kind: "error",
         message: "Storyboard generation failed",
-        detail: err instanceof Error ? err.message : String(err),
+        detail: formatError(err),
       });
     } finally {
       setBusy(false);
@@ -156,7 +157,7 @@ export function VideoPage() {
             updateSegment(seg.id, { busy: false });
           }
         } catch (err) {
-          const detail = err instanceof Error ? err.message : String(err);
+          const detail = formatError(err);
           updateSegment(seg.id, { busy: false, error: detail });
           notify({
             kind: "error",
@@ -209,7 +210,7 @@ export function VideoPage() {
       notify({
         kind: "error",
         message: "Assembly failed",
-        detail: err instanceof Error ? err.message : String(err),
+        detail: formatError(err),
       });
     } finally {
       setRenderBusy(false);
