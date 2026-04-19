@@ -12,17 +12,21 @@ Lazy-loading + manual chunk splits delivered. Bundle reshape:
 - main `index-*.js`: 2,341 kB minified / 688 kB gzipped (Vite warning)
 - 3 split chunks: html2canvas, jsPDF, purify
 
-**After (commit `ea142b8`):**
+**After (final, post-final-review fix):**
 - main `index-*.js`: 39.69 kB minified / 12.09 kB gzipped — **−98%**
-- vendor-three: 1,007.16 kB / 276.38 kB gzipped (Graphic3D-only)
-- vendor-fabric: 293.26 kB / 89.45 kB gzipped (Graphic2D + Typography)
-- vendor-monaco: 11.39 kB / 4.33 kB gzipped (WebsiteBuilder wrapper; Monaco itself is CDN)
-- vendor-motion: 32.18 kB / 11.12 kB gzipped (framer-motion)
-- vendor-react: 36.68 kB / 13.10 kB gzipped (react-router-dom)
-- vendor-misc: 1,199.42 kB / 367.17 kB gzipped (lucide-react, zustand, gif.js, jspdf, html2canvas, etc.)
+- vendor-react: 229.84 kB / 73.50 kB gzipped (react + react-dom + scheduler + react-router-dom — shell critical path with entry)
+- vendor-fabric: 293.26 kB / 89.45 kB gzipped (Graphic2D + Typography, lazy)
+- vendor-three: 1,007.19 kB / 276.40 kB gzipped (Graphic3D-only, lazy)
+- vendor-monaco: 11.42 kB / 4.35 kB gzipped (WebsiteBuilder wrapper; Monaco itself is CDN, lazy)
+- vendor-motion: 32.22 kB / 11.14 kB gzipped (framer-motion, eager — used by AnimatePresence/Toast/Tooltip)
+- vendor-misc: 1,002.46 kB / 305.28 kB gzipped (lucide-react, zustand, gif.js, jspdf, html2canvas, etc., lazy in their consumer routes)
 - 6 per-page chunks: 12.53 kB (WebsiteBuilder) – 25.27 kB (Graphic2D), gzipped 3.75–7.84 kB
 
+**Shell critical path on first paint:** `index` (39.7 KB) + `vendor-react` (229.8 KB) + `vendor-motion` (32.2 KB) ≈ **302 KB minified / 96 KB gzipped** vs. baseline 2.34 MB / 688 KB gzipped — **−86% on shell-critical bytes** (the headline −98% number is the entry chunk alone, which is misleading because it doesn't include react-dom).
+
 Vite's "chunks larger than 500 kB" warning persists for vendor-three + vendor-misc (intentional — they load on-demand for their owning routes, not on initial paint).
+
+A circular-chunk warning (`vendor-three -> vendor-misc -> vendor-three`) surfaced after the react-dom move — likely a `@react-three/drei` dep that pulls something currently in vendor-misc back into the three boundary. Logged as backlog.
 
 Verification pipeline:
 - Frontend: `pnpm test` 382 tests / 78 files, all green
@@ -41,10 +45,15 @@ Verification pipeline:
 - 6 App routing tests adapted from `getBy*` to `findBy*` (lazy resolution is async)
 
 ### 2. Vendor splits + visualizer
-- `vite.config.ts` adds `build.rollupOptions.output.manualChunks` with regex matchers for three, fabric, monaco, framer-motion, react-router-dom; everything else lands in `vendor-misc`
-- `react-dom` intentionally NOT matched — stays in entry chunk so shell can render before vendor chunks load
+- `vite.config.ts` adds `build.rollupOptions.output.manualChunks` with regex matchers for three, fabric, monaco, framer-motion, and `react|react-dom|scheduler|react-router|react-router-dom` (the React core in `vendor-react`); everything else lands in `vendor-misc`
+- React core (react + react-dom + scheduler) extracted into `vendor-react` after the final-review fix — without this, react-dom landed silently in `vendor-misc` and the shell critical path was ~1.2 MB instead of ~270 KB
 - `rollup-plugin-visualizer@7.0.1` emits `dist/stats.html` (treemap, gzip sizes) on every build
 - `docs/TESTING.md` documents chunks + how to inspect
+
+## TODO ledger from final review
+- Circular chunk `vendor-three ↔ vendor-misc` (introduced when react-dom moved to vendor-react). Logged as backlog. Likely a `@react-three/drei` transitive dep that the regex doesn't catch.
+- `vendor-misc` still 1 MB / 305 KB gz — further splits possible (vendor-pdf for jspdf+html2canvas, vendor-icons for lucide-react). Backlog.
+- No Playwright assertion that `ModuleLoadingFallback` actually renders during cold route entry. Backlog.
 
 ## Backlog filed during execution
 

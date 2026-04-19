@@ -62,10 +62,13 @@ export default defineConfig(async () => ({
             }
             // framer-motion (used by AnimatePresence, Toast, Tooltip — eager)
             if (/node_modules\/framer-motion/.test(id)) return "vendor-motion";
-            // react-router (eager but heavy enough to warrant own chunk)
-            // NOTE: react-dom intentionally NOT matched — keep it in entry chunk
-            // so the shell can render immediately without waiting for vendor-react.
-            if (/node_modules\/(react-router|react-router-dom)/.test(id)) {
+            // React core + DOM + scheduler + react-router. Goes into a single
+            // vendor-react chunk so the shell critical path is `entry +
+            // vendor-react` (~180KB combined) instead of `entry + vendor-misc`
+            // (~1.2MB) which used to drag react-dom along with everything else.
+            if (
+              /node_modules\/(react|react-dom|scheduler|react-router|react-router-dom)\//.test(id)
+            ) {
               return "vendor-react";
             }
             // Everything else (lucide-react, zustand, gif.js, jsPDF, etc.)
