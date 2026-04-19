@@ -756,4 +756,47 @@ mod tests {
             "https://fake.replicate/polled.glb"
         );
     }
+
+    /// A prediction that never reaches a terminal state must exhaust the
+    /// polling budget and surface `ProviderError::Timeout` so the router can
+    /// fall back to a different provider instead of hanging the user.
+    #[tokio::test]
+    async fn replicate_polling_times_out_after_max_attempts() {
+        let server = MockServer::start().await;
+        let poll_url = format!("{}/v1/predictions/pred-timeout-1", server.uri());
+
+        // Initial POST returns status=starting with a poll URL.
+        Mock::given(method("POST"))
+            .and(path("/v1/predictions"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+                "id": "pred-timeout-1",
+                "status": "starting",
+                "urls": { "get": poll_url.clone() },
+                "output": null,
+            })))
+            .mount(&server)
+            .await;
+
+        // Every GET keeps reporting "processing" — polling should give up.
+        Mock::given(method("GET"))
+            .and(path("/v1/predictions/pred-timeout-1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "pred-timeout-1",
+                "status": "processing",
+                "output": null,
+            })))
+            .mount(&server)
+            .await;
+
+        let client =
+            ReplicateClient::for_test_with_poll_budget(key_store_with_key(), server.uri(), 2);
+        let err = client
+            .execute(Model::ReplicateFluxDev, &request("never finishes"))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, ProviderError::Timeout),
+            "expected Timeout, got {err:?}"
+        );
+    }
 }

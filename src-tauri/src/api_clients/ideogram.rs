@@ -359,4 +359,33 @@ mod tests {
             Some("https://out/nested.png")
         );
     }
+
+    /// Response delay exceeding the reqwest HTTP timeout (5s in `for_test`)
+    /// must surface as `ProviderError::Timeout` so the router can fall back
+    /// to a different provider instead of hanging the user.
+    #[tokio::test]
+    async fn response_delay_yields_timeout() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/generate"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({
+                        "data": [{ "url": "https://ideogram.ai/img/late.png" }]
+                    }))
+                    .set_delay(std::time::Duration::from_secs(10)),
+            )
+            .mount(&server)
+            .await;
+
+        let client = IdeogramClient::for_test(key_store_with_key(), server.uri());
+        let err = client
+            .execute(Model::IdeogramV3, &request("hang please"))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, ProviderError::Timeout),
+            "expected Timeout, got {err:?}"
+        );
+    }
 }

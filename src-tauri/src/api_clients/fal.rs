@@ -508,4 +508,33 @@ mod tests {
         assert!(!client.supports(Model::ReplicateFluxDev));
         assert!(!client.supports(Model::Kling20));
     }
+
+    /// Response delay exceeding the reqwest HTTP timeout (5s in `for_test`)
+    /// must surface as `ProviderError::Timeout` so the router can fall back
+    /// to a different provider instead of hanging the user.
+    #[tokio::test]
+    async fn response_delay_yields_timeout() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/fal-ai/flux-pro"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({
+                        "images": [{ "url": "https://cdn/late.png", "width": 1, "height": 1 }]
+                    }))
+                    .set_delay(std::time::Duration::from_secs(10)),
+            )
+            .mount(&server)
+            .await;
+
+        let client = FalClient::for_test(key_store_with_key(), server.uri());
+        let err = client
+            .execute(Model::FalFluxPro, &request("hang please", Value::Null))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, ProviderError::Timeout),
+            "expected Timeout, got {err:?}"
+        );
+    }
 }

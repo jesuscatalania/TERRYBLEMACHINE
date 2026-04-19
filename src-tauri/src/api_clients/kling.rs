@@ -422,4 +422,34 @@ mod tests {
         let err = client.execute(Model::Kling20, &req).await.unwrap_err();
         assert!(matches!(err, ProviderError::Permanent(_)));
     }
+
+    /// Response delay exceeding the reqwest HTTP timeout (5s in `for_test`)
+    /// must surface as `ProviderError::Timeout` so the router can fall back
+    /// to a different provider instead of hanging the user.
+    #[tokio::test]
+    async fn response_delay_yields_timeout() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/videos/text2video"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({
+                        "task_id": "task-late",
+                        "task_status": "submitted"
+                    }))
+                    .set_delay(std::time::Duration::from_secs(10)),
+            )
+            .mount(&server)
+            .await;
+
+        let client = KlingClient::for_test(key_store_with_key(), server.uri());
+        let err = client
+            .execute(Model::Kling20, &request("hang please"))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, ProviderError::Timeout),
+            "expected Timeout, got {err:?}"
+        );
+    }
 }

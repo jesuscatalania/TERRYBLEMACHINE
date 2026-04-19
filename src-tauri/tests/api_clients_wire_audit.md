@@ -24,15 +24,15 @@ Tests were categorised into four pillars:
 
 | Client | Success | Auth | Error | Timeout | Gaps |
 |---|---|---|---|---|---|
-| claude | ✓ | ✓ | ✓ | ✗ | timeout |
-| kling | ✓ | ✓ | ✓ | ✗ | timeout |
+| claude | ✓ | ✓ | ✓ | ✓ | — |
+| kling | ✓ | ✓ | ✓ | ✓ | — |
 | runway | ✓ | ✓ | ✓ | ✓ | — |
 | higgsfield | ✓ | ✓ | ✓ | ✓ | — |
 | shotstack | ✓ | ✓ | ✓ | ✓ | — |
-| ideogram | ✓ | ✓ | ✓ | ✗ | timeout |
+| ideogram | ✓ | ✓ | ✓ | ✓ | — |
 | meshy | ✓ | ✓ | ✓ | ✓ | — |
-| fal | ✓ | ✓ | ✓ | ✗ | timeout |
-| replicate | ✓ | ✓ | ✓ | ✗ | timeout (polling) |
+| fal | ✓ | ✓ | ✓ | ✓ | — |
+| replicate | ✓ | ✓ | ✓ | ✓ | — |
 
 ## Evidence
 
@@ -43,7 +43,8 @@ Tests were categorised into four pillars:
   and `anthropic-version` headers) + `missing_key_yields_auth_error`.
 - Error: `server_500_is_transient` + `status_401_is_auth` +
   `unsupported_model_is_permanent` + `vision_payload_rejects_missing_media_type`.
-- Timeout: **no test**. Synchronous POST — reqwest 60s path uncovered.
+- Timeout: `response_delay_yields_timeout` — mock delays the response past
+  the `for_test` 5s reqwest timeout; asserts `ProviderError::Timeout`.
 
 ### kling (`src-tauri/src/api_clients/kling.rs`)
 
@@ -53,7 +54,8 @@ Tests were categorised into four pillars:
 - Error: `server_500_is_transient` + `status_401_is_auth`
   + `unsupported_model_is_permanent` + `image_to_video_requires_image_url`
   + `unsupported_task_is_permanent`.
-- Timeout: **no test**. Single-shot submit (no polling) — reqwest timeout path uncovered.
+- Timeout: `response_delay_yields_timeout` — mock delays the response past
+  the `for_test` 5s reqwest timeout; asserts `ProviderError::Timeout`.
 
 ### runway (`src-tauri/src/api_clients/runway.rs`)
 
@@ -95,7 +97,8 @@ Tests were categorised into four pillars:
   + `missing_key_yields_auth_error`.
 - Error: `server_500_is_transient` + `status_401_is_auth`
   + `unsupported_model_is_permanent`.
-- Timeout: **no test**. Synchronous POST — reqwest timeout path uncovered.
+- Timeout: `response_delay_yields_timeout` — mock delays the response past
+  the `for_test` 5s reqwest timeout; asserts `ProviderError::Timeout`.
 
 ### meshy (`src-tauri/src/api_clients/meshy.rs`)
 
@@ -117,7 +120,8 @@ Tests were categorised into four pillars:
   + `missing_key_yields_auth_error`.
 - Error: `server_500_is_transient` + `status_401_is_auth`
   + `unsupported_model_is_permanent`.
-- Timeout: **no test**. Synchronous POST-then-await — reqwest timeout path uncovered.
+- Timeout: `response_delay_yields_timeout` — mock delays the response past
+  the `for_test` 5s reqwest timeout; asserts `ProviderError::Timeout`.
 
 ### replicate (`src-tauri/src/api_clients/replicate.rs`)
 
@@ -130,24 +134,19 @@ Tests were categorised into four pillars:
 - Error: `server_500_is_transient` + `status_401_is_auth`
   + `unsupported_model_is_permanent` + `triposr_requires_image_url`
   + `depth_anything_v2_requires_image_url`.
-- Timeout: **no test**. `poll_prediction` has a `ProviderError::Timeout`
-  branch on exhausted `poll_max_attempts` — uncovered by wiremock tests.
+- Timeout: `replicate_polling_times_out_after_max_attempts` — mock keeps
+  reporting `status: "processing"`; client gives up after the shrunken
+  `poll_max_attempts` budget (`for_test_with_poll_budget(_, _, 2)`) and
+  returns `ProviderError::Timeout`.
 
 ## Summary
 
-**Total gaps to fill:** 5 — timeout pillar missing for `claude`, `kling`,
-`ideogram`, `fal`, `replicate`.
+**Total gaps to fill:** 0 — all 9 API clients now cover all four pillars.
 
-The 4 long-polling clients (runway, higgsfield, shotstack, meshy) all have
-explicit polling-exhaustion timeout tests. Of the remaining 5:
-
-- `replicate` also polls (`poll_prediction`) but lacks a polling-exhaustion
-  test — this is a real test-coverage gap.
-- `claude`, `kling`, `ideogram`, `fal` are synchronous request/response.
-  Their `ProviderError::Timeout` path arises only from the reqwest 60s HTTP
-  timeout (`map_reqwest_error → Timeout`). A response-delay wiremock test
-  (configured below `map_reqwest_error`'s threshold) would cover this.
-
-T4 follow-up will fill these 5 gaps using the established `for_test` /
-`MockServer` pattern (plus, for polling clients, the `for_test_with_polling`
-variant that dials the poll budget down for fast tests).
+The 4 long-polling clients (runway, higgsfield, shotstack, meshy) and
+replicate's polling path all have explicit polling-exhaustion timeout tests.
+The 4 synchronous clients (claude, kling, ideogram, fal) now each have a
+`response_delay_yields_timeout` test that delays the mock response past the
+`for_test` 5s reqwest HTTP timeout, asserting the `ProviderError::Timeout`
+variant. Tests run concurrently, so the full-suite wall-clock impact is
+a single ~5s window.
