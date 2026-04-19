@@ -76,6 +76,7 @@ function App() {
   useBudgetPoll();
   const [newDialogOpen, setNewDialogOpen] = useState(false);
   const activeModule = useAppStore((s) => s.activeModule);
+  const activeGenerate = useAppStore((s) => s.activeGenerate);
   const openProject = useProjectStore((s) => s.openProject);
   const notify = useUiStore((s) => s.notify);
 
@@ -132,7 +133,11 @@ function App() {
 
   return (
     <>
-      <Shell onNew={() => setNewDialogOpen(true)} onOpenSettings={openSettings}>
+      <Shell
+        onNew={() => setNewDialogOpen(true)}
+        onGenerate={activeGenerate ?? undefined}
+        onOpenSettings={openSettings}
+      >
         <AnimatedRoutes />
       </Shell>
       <NewProjectDialog

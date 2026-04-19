@@ -1,6 +1,6 @@
 import { jsPDF } from "jspdf";
 import { Download } from "lucide-react";
-import { Suspense, useCallback, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { WebGLRenderer } from "three";
 import { CameraControls, type CameraMode } from "@/components/graphic3d/CameraControls";
 import { captureAnimatedGif } from "@/components/graphic3d/captureAnimatedGif";
@@ -31,6 +31,7 @@ import {
 } from "@/lib/meshCommands";
 import { parseOverride, resolveOverrideToModel } from "@/lib/promptOverride";
 import { useProjectStore } from "@/stores/projectStore";
+import { useAppStore } from "@/stores/appStore";
 import { useUiStore } from "@/stores/uiStore";
 
 export function Graphic3DPage() {
@@ -129,6 +130,15 @@ export function Graphic3DPage() {
       setMeshBusy(false);
     }
   }
+
+  // Header Generate button → text-to-3D is the primary flow on this page.
+  const setActiveGenerate = useAppStore((s) => s.setActiveGenerate);
+  useEffect(() => {
+    setActiveGenerate(() => {
+      void generate3D();
+    });
+    return () => setActiveGenerate(null);
+  }, [setActiveGenerate, meshPrompt, model, optimize.enabled]);
 
   async function generate3DFromImage() {
     const trimmed = imageUrl.trim();

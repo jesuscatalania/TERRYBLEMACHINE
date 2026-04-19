@@ -1,5 +1,5 @@
 import { ExternalLink, Laptop, Smartphone, Tablet } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
 import { LoadingButton } from "@/components/ui/LoadingButton";
@@ -28,6 +28,7 @@ import {
   refineWebsite,
   type Template,
 } from "@/lib/websiteCommands";
+import { useAppStore } from "@/stores/appStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useUiStore } from "@/stores/uiStore";
 
@@ -138,6 +139,17 @@ export function WebsiteBuilderPage() {
       setBusy(false);
     }
   }
+
+  // Register this page's submit() as the global "Generate" handler so
+  // the header's Generate button fires it. Without this, the header
+  // button is a no-op (we saw users wait 10min expecting a response).
+  const setActiveGenerate = useAppStore((s) => s.setActiveGenerate);
+  useEffect(() => {
+    setActiveGenerate(() => {
+      void submit();
+    });
+    return () => setActiveGenerate(null);
+  }, [setActiveGenerate, prompt, template, analysis, model, optimize.enabled]);
 
   function updateFiles(next: GeneratedFile[]) {
     if (!project) return;

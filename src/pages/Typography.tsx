@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BrandKitDialog, type BrandKitDialogInput } from "@/components/typography/BrandKitDialog";
 import { LogoGallery } from "@/components/typography/LogoGallery";
 import { SvgEditor, type SvgEditorHandle } from "@/components/typography/SvgEditor";
@@ -15,6 +15,7 @@ import { generateLogoVariants, type LogoStyle, type LogoVariant } from "@/lib/lo
 import { parseOverride, resolveOverrideToModel } from "@/lib/promptOverride";
 import { vectorizeImage } from "@/lib/vectorizerCommands";
 import { useProjectStore } from "@/stores/projectStore";
+import { useAppStore } from "@/stores/appStore";
 import { useUiStore } from "@/stores/uiStore";
 
 const DEFAULT_TEXT_STYLE: TextStyle = {
@@ -117,6 +118,15 @@ export function TypographyPage() {
       setBusy(false);
     }
   }
+
+  // Header Generate button → logo generation.
+  const setActiveGenerate = useAppStore((s) => s.setActiveGenerate);
+  useEffect(() => {
+    setActiveGenerate(() => {
+      void handleGenerate();
+    });
+    return () => setActiveGenerate(null);
+  }, [setActiveGenerate, prompt, style, model, optimize.enabled]);
 
   async function handleVectorize() {
     if (!selectedVariant?.local_path) return;

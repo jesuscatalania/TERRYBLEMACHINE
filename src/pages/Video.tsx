@@ -20,6 +20,7 @@ import {
   type StoryboardTemplate,
 } from "@/lib/storyboardCommands";
 import { generateVideoFromText } from "@/lib/videoCommands";
+import { useAppStore } from "@/stores/appStore";
 import { useUiStore } from "@/stores/uiStore";
 import { useVideoStore } from "@/stores/videoStore";
 
@@ -119,6 +120,15 @@ export function VideoPage() {
       setBusy(false);
     }
   }
+
+  // Header Generate button → kicks off storyboard generation (Flow A).
+  const setActiveGenerate = useAppStore((s) => s.setActiveGenerate);
+  useEffect(() => {
+    setActiveGenerate(() => {
+      void handleGenerate();
+    });
+    return () => setActiveGenerate(null);
+  }, [setActiveGenerate, prompt, template, model, optimize.enabled]);
 
   // Flow (B): iterate segments and generate each via the right backend.
   async function generateAllSegments() {

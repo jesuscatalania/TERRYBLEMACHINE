@@ -58,14 +58,33 @@ impl Spawner for TokioSpawner {
             let _ = stdin_handle.write_all(text.as_bytes()).await;
             let _ = stdin_handle.shutdown().await;
         }
-        let out = match child.wait_with_output().await {
-            Ok(o) => o,
-            Err(e) => {
+        // Hard ceiling on a single Claude CLI call. 8 minutes accommodates
+        // large multi-file codegen (Vite/React scaffolds with ~20 files)
+        // while surfacing true hangs (broken pipe, stream-json never
+        // emitting "result") as a clear Timeout error instead of an
+        // unbounded loading spinner.
+        const CLAUDE_CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(480);
+        let out = match tokio::time::timeout(CLAUDE_CALL_TIMEOUT, child.wait_with_output()).await {
+            Ok(Ok(o)) => o,
+            Ok(Err(e)) => {
                 return SpawnResult {
                     exit_code: -1,
                     stdout: String::new(),
                     stderr: format!("wait failed: {e}"),
                 }
+            }
+            Err(_) => {
+                // Timeout elapsed. kill_on_drop will reap the child when
+                // the ownership ends at the end of this scope — no
+                // orphaned claude process.
+                return SpawnResult {
+                    exit_code: -1,
+                    stdout: String::new(),
+                    stderr: format!(
+                        "claude CLI call exceeded {}s timeout — killing child process",
+                        CLAUDE_CALL_TIMEOUT.as_secs()
+                    ),
+                };
             }
         };
         SpawnResult {

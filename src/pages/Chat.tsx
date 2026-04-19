@@ -1,10 +1,11 @@
 import { Send, Sparkles, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LoadingButton } from "@/components/ui/LoadingButton";
 import { OptimizeToggle } from "@/components/ui/OptimizeToggle";
 import { ToolDropdown } from "@/components/ui/ToolDropdown";
 import { useOptimizePrompt } from "@/hooks/useOptimizePrompt";
 import { sendChatMessage } from "@/lib/chatCommands";
+import { useAppStore } from "@/stores/appStore";
 import { useChatStore } from "@/stores/chatStore";
 import { useUiStore } from "@/stores/uiStore";
 
@@ -50,6 +51,15 @@ export function ChatPage() {
       setBusy(false);
     }
   }
+
+  // Header Generate button → send the current chat message.
+  const setActiveGenerate = useAppStore((s) => s.setActiveGenerate);
+  useEffect(() => {
+    setActiveGenerate(() => {
+      void handleSend();
+    });
+    return () => setActiveGenerate(null);
+  }, [setActiveGenerate, input, busy]);
 
   return (
     <div className="grid h-full grid-rows-[auto_1fr_auto]">

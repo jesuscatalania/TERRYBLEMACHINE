@@ -24,6 +24,7 @@ import { useOptimizePrompt } from "@/hooks/useOptimizePrompt";
 import { formatError } from "@/lib/formatError";
 import { generateVariants, type ImageResult, inpaintImage, isDataUrl } from "@/lib/imageCommands";
 import { parseOverride, resolveOverrideToModel } from "@/lib/promptOverride";
+import { useAppStore } from "@/stores/appStore";
 import { useUiStore } from "@/stores/uiStore";
 
 export function Graphic2DPage() {
@@ -61,6 +62,17 @@ export function Graphic2DPage() {
     setValue: setPrompt,
   });
   const notify = useUiStore((s) => s.notify);
+  const setActiveGenerate = useAppStore((s) => s.setActiveGenerate);
+
+  // Register generate() as the global Generate handler so the header
+  // button fires it. Without this the header's orange button is a no-op
+  // on this page. Re-runs when state the handler closes over changes.
+  useEffect(() => {
+    setActiveGenerate(() => {
+      void generate();
+    });
+    return () => setActiveGenerate(null);
+  }, [setActiveGenerate, prompt, model, optimize.enabled]);
 
   // Toggle selection modes on the canvas whenever the dropdown changes.
   useEffect(() => {
