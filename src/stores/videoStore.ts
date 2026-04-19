@@ -30,24 +30,58 @@ interface VideoState {
   reset: () => void;
 }
 
+export const VIDEO_SEGMENTS_STORAGE_KEY = "tm:video:segments";
+
 let idCounter = 0;
 const nextId = () => `seg-${Date.now()}-${++idCounter}`;
 
+function loadInitial(): Segment[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(VIDEO_SEGMENTS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Segment[];
+    if (!Array.isArray(parsed)) return [];
+    // Clear transient busy flags — a segment can't remain mid-render
+    // across a page reload. Errors stay so the user can retry.
+    return parsed.map((s) => ({ ...s, busy: false }));
+  } catch {
+    return [];
+  }
+}
+
+function persist(segments: Segment[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(VIDEO_SEGMENTS_STORAGE_KEY, JSON.stringify(segments));
+  } catch {
+    // localStorage full or disabled — silently ignore
+  }
+}
+
 export const useVideoStore = create<VideoState>((set) => ({
-  segments: [],
+  segments: loadInitial(),
   addSegment: (s) => {
     const id = nextId();
-    set((state) => ({ segments: [...state.segments, { id, ...s }] }));
+    set((state) => {
+      const next = [...state.segments, { id, ...s }];
+      persist(next);
+      return { segments: next };
+    });
     return id;
   },
   updateSegment: (id, patch) =>
-    set((state) => ({
-      segments: state.segments.map((s) => (s.id === id ? { ...s, ...patch } : s)),
-    })),
+    set((state) => {
+      const next = state.segments.map((s) => (s.id === id ? { ...s, ...patch } : s));
+      persist(next);
+      return { segments: next };
+    }),
   removeSegment: (id) =>
-    set((state) => ({
-      segments: state.segments.filter((s) => s.id !== id),
-    })),
+    set((state) => {
+      const next = state.segments.filter((s) => s.id !== id);
+      persist(next);
+      return { segments: next };
+    }),
   moveSegment: (from, to) =>
     set((state) => {
       const next = [...state.segments];
@@ -55,11 +89,12 @@ export const useVideoStore = create<VideoState>((set) => ({
       const [moved] = next.splice(from, 1);
       if (!moved) return state;
       next.splice(to, 0, moved);
+      persist(next);
       return { segments: next };
     }),
   applyVideoResult: (id, r) =>
-    set((state) => ({
-      segments: state.segments.map((s) =>
+    set((state) => {
+      const next = state.segments.map((s) =>
         s.id === id
           ? {
               ...s,
@@ -71,7 +106,12 @@ export const useVideoStore = create<VideoState>((set) => ({
               duration_s: r.duration_s ?? s.duration_s,
             }
           : s,
-      ),
-    })),
-  reset: () => set({ segments: [] }),
+      );
+      persist(next);
+      return { segments: next };
+    }),
+  reset: () => {
+    persist([]);
+    set({ segments: [] });
+  },
 }));
