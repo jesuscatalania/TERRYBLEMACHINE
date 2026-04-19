@@ -75,6 +75,19 @@ describe("OptimizeToggle", () => {
         onUndo={() => {}}
       />,
     );
-    expect(screen.getByLabelText(/optimizing/i)).toBeInTheDocument();
+    expect(screen.getByRole("switch")).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("disables switch when busy", () => {
+    render(
+      <OptimizeToggle
+        enabled={true}
+        onToggle={() => {}}
+        busy={true}
+        canUndo={false}
+        onUndo={() => {}}
+      />,
+    );
+    expect(screen.getByRole("switch")).toBeDisabled();
   });
 });

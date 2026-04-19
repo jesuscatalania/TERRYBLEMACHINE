@@ -14,6 +14,7 @@ export function useOptimizePrompt({ taskKind, value, setValue }: UseOptimizeProm
   const [originalForUndo, setOriginalForUndo] = useState<string | null>(null);
 
   async function optimize(): Promise<void> {
+    if (busy) return;
     setBusy(true);
     try {
       const optimized = await optimizePrompt(value, taskKind);

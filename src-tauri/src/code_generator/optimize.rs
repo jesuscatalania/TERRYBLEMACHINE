@@ -5,7 +5,7 @@
 use serde::Deserialize;
 use tauri::State;
 
-use crate::ai_router::commands::AiRouterState;
+use crate::ai_router::commands::{AiRouterState, RouterIpcError};
 use crate::ai_router::{AiRequest, Complexity, Priority, TaskKind};
 
 #[derive(Debug, Deserialize)]
@@ -32,11 +32,11 @@ fn meta_for(task: &str) -> &'static str {
 pub async fn optimize_prompt(
     input: OptimizeInput,
     router: State<'_, AiRouterState>,
-) -> Result<String, String> {
+) -> Result<String, RouterIpcError> {
     let meta = meta_for(&input.task);
     let combined = format!("{meta}\n\nUSER PROMPT:\n{}\n\nREWRITTEN:", input.prompt);
     let request = AiRequest {
-        id: format!("optimize-{}", chrono::Utc::now().timestamp_millis()),
+        id: uuid::Uuid::new_v4().to_string(),
         task: TaskKind::TextGeneration,
         priority: Priority::High,
         complexity: Complexity::Simple,
@@ -44,16 +44,12 @@ pub async fn optimize_prompt(
         payload: serde_json::Value::Null,
         model_override: None,
     };
-    let response = router
-        .0
-        .route(request)
-        .await
-        .map_err(|e| e.to_string())?;
+    let response = router.0.route(request).await?;
     let text = response
         .output
         .get("text")
         .and_then(|t| t.as_str())
-        .ok_or_else(|| "optimize: no text in response".to_string())?
+        .ok_or_else(|| RouterIpcError::Permanent("optimize: no text in response".to_string()))?
         .trim()
         .to_string();
     Ok(text)

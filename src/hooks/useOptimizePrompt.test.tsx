@@ -62,4 +62,30 @@ describe("useOptimizePrompt", () => {
     expect(setValue).not.toHaveBeenCalled();
     expect(result.current.canUndo).toBe(false);
   });
+
+  it("ignores optimize calls while already busy", async () => {
+    vi.mocked(optimizePrompt).mockClear();
+    const setValue = vi.fn();
+    let resolveFirst: (v: string) => void = () => {};
+    vi.mocked(optimizePrompt).mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolveFirst = r;
+        }),
+    );
+    const { result } = renderHook(() =>
+      useOptimizePrompt({ taskKind: "ImageGeneration", value: "x", setValue }),
+    );
+    act(() => {
+      void result.current.optimize();
+    });
+    // second call while first is still pending
+    await act(async () => {
+      await result.current.optimize();
+    });
+    expect(optimizePrompt).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveFirst("done");
+    });
+  });
 });

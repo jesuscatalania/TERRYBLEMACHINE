@@ -15,6 +15,8 @@ export function OptimizeToggle({ enabled, onToggle, busy, canUndo, onUndo }: Opt
         type="button"
         role="switch"
         aria-checked={enabled}
+        aria-busy={busy}
+        disabled={busy}
         onClick={() => onToggle(!enabled)}
         className={`flex items-center gap-1 rounded-xs border px-2 py-1 font-mono text-2xs uppercase tracking-label transition-colors ${
           enabled
@@ -24,7 +26,7 @@ export function OptimizeToggle({ enabled, onToggle, busy, canUndo, onUndo }: Opt
         aria-label="Optimize"
       >
         {busy ? (
-          <Loader2 className="h-3 w-3 animate-spin" aria-label="optimizing" />
+          <Loader2 className="h-3 w-3 animate-spin" aria-hidden={true} />
         ) : (
           <Sparkles className="h-3 w-3" strokeWidth={1.5} />
         )}
