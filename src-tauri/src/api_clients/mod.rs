@@ -13,6 +13,7 @@
 //! that actually consume them (Phase 3+).
 
 pub mod claude;
+pub mod claude_cli;
 pub mod common;
 pub mod fal;
 pub mod higgsfield;
