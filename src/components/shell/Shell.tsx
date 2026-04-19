@@ -24,7 +24,7 @@ export function Shell({ children, onNew, onGenerate, onOpenSettings, renderProgr
       className={`grid h-screen w-screen ${gridCols} grid-rows-[3rem_1fr_1.75rem] bg-neutral-dark-900 text-neutral-dark-100`}
     >
       <div className="row-span-3 row-start-1">
-        <Sidebar />
+        <Sidebar onSettings={onOpenSettings} />
       </div>
       <Header
         projectName={currentProject?.name}

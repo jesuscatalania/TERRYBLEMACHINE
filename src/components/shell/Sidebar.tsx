@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Layers } from "lucide-react";
+import { ChevronLeft, ChevronRight, Layers, Settings } from "lucide-react";
 import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { MODULES } from "@/components/shell/modules";
@@ -9,6 +9,11 @@ import { moduleToPath } from "@/lib/moduleRoutes";
 import type { ModuleId } from "@/stores/appStore";
 import { useAppStore } from "@/stores/appStore";
 import { useProjectStore } from "@/stores/projectStore";
+
+export interface SidebarProps {
+  /** Opens the Settings / API-key modal. */
+  onSettings?: () => void;
+}
 
 function BrandMark() {
   return (
@@ -27,7 +32,7 @@ function SectionLabel({ children }: { children: string }) {
   );
 }
 
-export function Sidebar() {
+export function Sidebar({ onSettings }: SidebarProps = {}) {
   // Per-field selectors — prevents re-render on unrelated appStore changes
   // (theme flip, future additions). See FU #94.
   const activeModule = useAppStore((s) => s.activeModule);
@@ -143,9 +148,33 @@ export function Sidebar() {
         </>
       )}
 
+      {/* Settings (above the bottom bar so it sits flush with the version/chevron) */}
+      <div
+        className={`mt-auto flex items-center border-neutral-dark-700 border-t py-2 ${
+          sidebarOpen ? "justify-start px-4" : "justify-center px-0"
+        }`}
+      >
+        <Tooltip content="Settings (⌘,)" side="right">
+          <button
+            type="button"
+            onClick={onSettings}
+            aria-label="Settings"
+            disabled={!onSettings}
+            className={`inline-flex items-center gap-2 rounded-xs border border-transparent text-neutral-dark-400 hover:text-neutral-dark-100 disabled:cursor-not-allowed disabled:opacity-40 ${
+              sidebarOpen ? "h-7 px-2" : "h-7 w-7 justify-center p-0"
+            }`}
+          >
+            <Settings className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+            {sidebarOpen ? (
+              <span className="font-mono text-2xs uppercase tracking-label">Settings</span>
+            ) : null}
+          </button>
+        </Tooltip>
+      </div>
+
       {/* Bottom bar */}
       <div
-        className={`mt-auto flex items-center border-neutral-dark-600 border-t py-3 ${
+        className={`flex items-center border-neutral-dark-600 border-t py-3 ${
           sidebarOpen ? "justify-between px-4" : "justify-center px-0"
         }`}
       >

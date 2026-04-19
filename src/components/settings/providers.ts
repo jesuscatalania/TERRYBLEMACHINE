@@ -1,0 +1,75 @@
+/**
+ * Static catalog of API providers exposed by the Settings modal.
+ *
+ * The `id` field MUST match the `KEYCHAIN_SERVICE` constant declared in the
+ * corresponding `src-tauri/src/api_clients/<provider>.rs` module so the
+ * backend resolves the right key on read.
+ */
+
+export type ProviderPlan = "Subscription (Pro/Max)" | "Pay-per-Use";
+
+export interface ProviderDef {
+  id: string;
+  label: string;
+  plan: ProviderPlan;
+  helpUrl: string;
+  /** Short hint rendered next to the input. Optional. */
+  hint?: string;
+}
+
+export const PROVIDERS: readonly ProviderDef[] = [
+  {
+    id: "claude",
+    label: "Anthropic Claude",
+    plan: "Subscription (Pro/Max)",
+    helpUrl: "https://console.anthropic.com/settings/keys",
+  },
+  {
+    id: "kling",
+    label: "Kling AI Video",
+    plan: "Subscription (Pro/Max)",
+    helpUrl: "https://app.klingai.com/global/",
+  },
+  {
+    id: "runway",
+    label: "Runway Gen-3",
+    plan: "Subscription (Pro/Max)",
+    helpUrl: "https://app.runwayml.com/account",
+  },
+  {
+    id: "higgsfield",
+    label: "Higgsfield Video",
+    plan: "Subscription (Pro/Max)",
+    helpUrl: "https://higgsfield.ai/",
+  },
+  {
+    id: "shotstack",
+    label: "Shotstack (timeline assembly)",
+    plan: "Subscription (Pro/Max)",
+    helpUrl: "https://shotstack.io/dashboard/",
+  },
+  {
+    id: "ideogram",
+    label: "Ideogram (logos / typography)",
+    plan: "Subscription (Pro/Max)",
+    helpUrl: "https://ideogram.ai/manage-api",
+  },
+  {
+    id: "meshy",
+    label: "Meshy 3D",
+    plan: "Subscription (Pro/Max)",
+    helpUrl: "https://www.meshy.ai/api",
+  },
+  {
+    id: "fal",
+    label: "fal.ai (images)",
+    plan: "Pay-per-Use",
+    helpUrl: "https://fal.ai/dashboard/keys",
+  },
+  {
+    id: "replicate",
+    label: "Replicate (specialty models)",
+    plan: "Pay-per-Use",
+    helpUrl: "https://replicate.com/account/api-tokens",
+  },
+] as const;

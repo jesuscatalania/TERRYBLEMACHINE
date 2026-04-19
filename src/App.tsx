@@ -3,6 +3,7 @@ import { lazy, Suspense, useCallback, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { WelcomeModal } from "@/components/onboarding/WelcomeModal";
 import { NewProjectDialog } from "@/components/projects/NewProjectDialog";
+import { SettingsModal } from "@/components/settings/SettingsModal";
 import { ModuleLoadingFallback } from "@/components/shell/ModuleLoadingFallback";
 import { Shell } from "@/components/shell/Shell";
 import { ShortcutHelpOverlay } from "@/components/shell/ShortcutHelpOverlay";
@@ -85,6 +86,17 @@ function App() {
     label: "New project",
   });
 
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const openSettings = useCallback(() => setSettingsOpen(true), []);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  useKeyboardShortcut({
+    id: "global:settings",
+    combo: "Mod+,",
+    handler: openSettings,
+    scope: "global",
+    label: "Settings",
+  });
+
   const [helpOpen, setHelpOpen] = useState(false);
   const toggleHelp = useCallback(() => setHelpOpen((v) => !v), []);
   useKeyboardShortcut({
@@ -118,7 +130,7 @@ function App() {
 
   return (
     <>
-      <Shell onNew={() => setNewDialogOpen(true)}>
+      <Shell onNew={() => setNewDialogOpen(true)} onOpenSettings={openSettings}>
         <AnimatedRoutes />
       </Shell>
       <NewProjectDialog
@@ -127,6 +139,7 @@ function App() {
         onCreate={handleCreate}
         defaultModule={activeModule}
       />
+      <SettingsModal open={settingsOpen} onClose={closeSettings} />
       <WelcomeModal />
       <ShortcutHelpOverlay open={helpOpen} onClose={closeHelp} />
       <Toaster />
