@@ -40,7 +40,7 @@ export function StoryboardEditor({ storyboard, onChange }: StoryboardEditorProps
       index: storyboard.shots.length + 1,
       description: "",
       style: "",
-      duration_s: 4,
+      duration_s: 5,
       camera: "static",
       transition: "cut",
     };

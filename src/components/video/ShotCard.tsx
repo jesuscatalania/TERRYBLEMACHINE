@@ -57,15 +57,15 @@ export function ShotCard({
         aria-label={`Shot ${shot.index} description`}
       />
       <div className="mt-1 flex gap-2">
-        <input
-          type="number"
-          min={1}
-          step={0.5}
-          value={shot.duration_s}
+        <select
+          value={shot.duration_s <= 7 ? 5 : 10}
           onChange={(e) => onChange({ duration_s: Number(e.target.value) })}
           className="w-16 rounded-xs border border-neutral-dark-700 bg-neutral-dark-950 px-2 py-1 text-xs text-neutral-dark-100"
           aria-label={`Shot ${shot.index} duration`}
-        />
+        >
+          <option value={5}>5</option>
+          <option value={10}>10</option>
+        </select>
         <span className="font-mono text-2xs text-neutral-dark-500 self-center">sec</span>
         <input
           type="text"

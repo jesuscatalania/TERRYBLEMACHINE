@@ -43,7 +43,12 @@ Return a STRICT JSON object with no prose. Shape:
     }
   ]
 }
-Keep shots 4-8. Durations should sum to the template's target length.
+
+HARD CONSTRAINTS (non-negotiable):
+1. `duration_s` MUST be exactly 5 or 10 — no other values. The rendering pipeline (Kling V2 Master / V1.5 via fal.ai) rejects everything else with HTTP 422. If a shot needs 3s or 7s, round to 5; if it needs 8s or 12s, round to 10.
+2. If the user's brief specifies an exact number of shots or cuts (e.g. "2 shots", "1 cut so 2 segments", "give me 3 shots of 10 seconds each"), produce EXACTLY that count and those durations. User constraints override any template default.
+3. If the user's brief does NOT specify a shot count, default to 4-8 shots whose durations sum roughly to the template's target length.
+4. Transitions: "cut" for a hard cut between two adjacent shots, "fade", "dissolve", "whip-pan", or "match-cut".
 "#;
     format!("{enriched}\n\n{format_instructions}")
 }
