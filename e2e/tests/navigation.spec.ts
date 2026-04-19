@@ -40,4 +40,22 @@ test.describe("Navigation", () => {
     await page.goto("/nonexistent");
     await expect(page.getByText(/MOD—01 · WEBSITE BUILDER/i)).toBeVisible();
   });
+
+  test("Mod+1 through Mod+5 switch modules", async ({ page }) => {
+    await page.goto("/");
+    // Welcome is pre-dismissed via installInvokeMock; nothing extra to do.
+
+    // `canonicalCombo.eventToCombo` maps `metaKey || ctrlKey` to the "Mod+"
+    // prefix, so we can use `Control+...` in Playwright regardless of host
+    // platform — this dodges Chromium's native Cmd+<digit> tab-switch
+    // accelerators on macOS which can fire before the page receives keydown.
+    const mod = "Control";
+
+    await page.keyboard.press(`${mod}+5`);
+    await expect(page).toHaveURL(/\/typography/);
+    await page.keyboard.press(`${mod}+1`);
+    await expect(page).toHaveURL(/\/website/);
+    await page.keyboard.press(`${mod}+2`);
+    await expect(page).toHaveURL(/\/graphic2d/);
+  });
 });
