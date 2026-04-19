@@ -254,6 +254,7 @@ pub fn run() {
             detect_claude_cli,
             get_claude_transport,
             set_claude_transport,
+            api_clients::claude_cli::chat::chat_send_message,
             projects::commands::create_project,
             projects::commands::open_project,
             projects::commands::list_projects,
