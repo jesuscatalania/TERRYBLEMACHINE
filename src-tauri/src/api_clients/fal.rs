@@ -23,8 +23,16 @@ use crate::ai_router::{
 };
 use crate::keychain::KeyStore;
 
-/// Default base URL for the fal.ai queue endpoints.
+/// Default base URL for the fal.ai queue endpoints — used by Kling (long
+/// async video renders must submit + poll). Returns `{request_id,
+/// status_url, response_url}`.
 pub const DEFAULT_BASE_URL: &str = "https://queue.fal.run";
+/// Default base URL for fal.ai's synchronous proxy — used by the image
+/// models (Flux Pro, SDXL, Real-ESRGAN, Flux-Fill). The proxy internally
+/// runs the same queue but blocks the HTTP connection until the job
+/// finishes, returning the result inline (same shape as the legacy sync
+/// API). Keeps the existing `send_request` parse path valid.
+pub const DEFAULT_SYNC_BASE_URL: &str = "https://fal.run";
 /// Keychain service id under which the fal.ai key lives.
 pub const KEYCHAIN_SERVICE: &str = "fal";
 /// Default rate: fal.ai free tier is lenient; 10 rps is a safe ceiling.
@@ -40,7 +48,10 @@ const DEFAULT_POLL_MAX_DELAY: Duration = Duration::from_secs(15);
 
 pub struct FalClient {
     http: Client,
+    /// Queue base URL — used by Kling (async submit + poll).
     base_url: String,
+    /// Sync-proxy base URL — used by image models (blocking POST).
+    sync_base_url: String,
     key_store: Arc<dyn KeyStore>,
     rate: RateLimiter,
     poll_max_attempts: u32,
@@ -50,12 +61,27 @@ pub struct FalClient {
 
 impl FalClient {
     pub fn new(key_store: Arc<dyn KeyStore>) -> Self {
-        Self::with_base_url(key_store, DEFAULT_BASE_URL.to_owned(), DEFAULT_RATE_PER_SEC)
+        Self::with_base_urls(
+            key_store,
+            DEFAULT_BASE_URL.to_owned(),
+            DEFAULT_SYNC_BASE_URL.to_owned(),
+            DEFAULT_RATE_PER_SEC,
+        )
     }
 
     pub fn with_base_url(
         key_store: Arc<dyn KeyStore>,
         base_url: String,
+        rate_per_sec: usize,
+    ) -> Self {
+        let sync = base_url.clone();
+        Self::with_base_urls(key_store, base_url, sync, rate_per_sec)
+    }
+
+    pub fn with_base_urls(
+        key_store: Arc<dyn KeyStore>,
+        base_url: String,
+        sync_base_url: String,
         rate_per_sec: usize,
     ) -> Self {
         let http = Client::builder()
@@ -65,6 +91,7 @@ impl FalClient {
         Self {
             http,
             base_url,
+            sync_base_url,
             key_store,
             rate: RateLimiter::new(rate_per_sec),
             poll_max_attempts: DEFAULT_POLL_MAX_ATTEMPTS,
@@ -82,6 +109,7 @@ impl FalClient {
             .expect("reqwest client builds");
         Self {
             http,
+            sync_base_url: base_url.clone(),
             base_url,
             key_store,
             rate: RateLimiter::unlimited(),
@@ -107,6 +135,7 @@ impl FalClient {
             .expect("reqwest client builds");
         Self {
             http,
+            sync_base_url: base_url.clone(),
             base_url,
             key_store,
             rate: RateLimiter::unlimited(),
@@ -297,7 +326,9 @@ impl FalClient {
             .ok_or_else(|| ProviderError::Permanent(format!("unsupported model {model:?}")))?;
         let body = Self::body_for(model, request)?;
 
-        let url = format!("{}{}", self.base_url, endpoint);
+        // Image models route through the synchronous-proxy host; Kling
+        // (long-running video) uses the queue host via send_kling_request.
+        let url = format!("{}{}", self.sync_base_url, endpoint);
         let resp = self
             .http
             .post(&url)
