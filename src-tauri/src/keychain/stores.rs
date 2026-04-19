@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::env;
-use std::sync::Mutex;
+
+use parking_lot::Mutex;
 
 use super::errors::KeyStoreError;
 
@@ -53,14 +54,14 @@ impl InMemoryStore {
 impl KeyStore for InMemoryStore {
     fn store(&self, service: &str, key: &str) -> Result<(), KeyStoreError> {
         validate_service(service)?;
-        let mut guard = self.inner.lock().expect("keystore mutex poisoned");
+        let mut guard = self.inner.lock();
         guard.insert(service.to_owned(), key.to_owned());
         Ok(())
     }
 
     fn get(&self, service: &str) -> Result<String, KeyStoreError> {
         validate_service(service)?;
-        let guard = self.inner.lock().expect("keystore mutex poisoned");
+        let guard = self.inner.lock();
         guard
             .get(service)
             .cloned()
@@ -69,13 +70,13 @@ impl KeyStore for InMemoryStore {
 
     fn delete(&self, service: &str) -> Result<(), KeyStoreError> {
         validate_service(service)?;
-        let mut guard = self.inner.lock().expect("keystore mutex poisoned");
+        let mut guard = self.inner.lock();
         guard.remove(service);
         Ok(())
     }
 
     fn list(&self) -> Result<Vec<String>, KeyStoreError> {
-        let guard = self.inner.lock().expect("keystore mutex poisoned");
+        let guard = self.inner.lock();
         let mut keys: Vec<String> = guard.keys().cloned().collect();
         keys.sort();
         Ok(keys)
@@ -136,31 +137,17 @@ impl KeyStore for EnvStore {
         let service = service.to_owned();
         self.overrides
             .lock()
-            .expect("overrides mutex poisoned")
             .insert(service.clone(), key.to_owned());
-        self.tombstones
-            .lock()
-            .expect("tombstones mutex poisoned")
-            .remove(&service);
+        self.tombstones.lock().remove(&service);
         Ok(())
     }
 
     fn get(&self, service: &str) -> Result<String, KeyStoreError> {
         validate_service(service)?;
-        if self
-            .tombstones
-            .lock()
-            .expect("tombstones mutex poisoned")
-            .contains_key(service)
-        {
+        if self.tombstones.lock().contains_key(service) {
             return Err(KeyStoreError::NotFound(service.to_owned()));
         }
-        if let Some(value) = self
-            .overrides
-            .lock()
-            .expect("overrides mutex poisoned")
-            .get(service)
-        {
+        if let Some(value) = self.overrides.lock().get(service) {
             return Ok(value.clone());
         }
         env::var(self.env_name(service)).map_err(|_| KeyStoreError::NotFound(service.to_owned()))
@@ -168,25 +155,19 @@ impl KeyStore for EnvStore {
 
     fn delete(&self, service: &str) -> Result<(), KeyStoreError> {
         validate_service(service)?;
-        self.overrides
-            .lock()
-            .expect("overrides mutex poisoned")
-            .remove(service);
-        self.tombstones
-            .lock()
-            .expect("tombstones mutex poisoned")
-            .insert(service.to_owned(), ());
+        self.overrides.lock().remove(service);
+        self.tombstones.lock().insert(service.to_owned(), ());
         Ok(())
     }
 
     fn list(&self) -> Result<Vec<String>, KeyStoreError> {
         let mut services = self.env_services();
         {
-            let overrides = self.overrides.lock().expect("overrides mutex poisoned");
+            let overrides = self.overrides.lock();
             services.extend(overrides.keys().cloned());
         }
         {
-            let tombstones = self.tombstones.lock().expect("tombstones mutex poisoned");
+            let tombstones = self.tombstones.lock();
             services.retain(|s| !tombstones.contains_key(s));
         }
         services.sort();

@@ -115,7 +115,9 @@ impl ShotstackAssembler {
 
         if let Some(stripped) = remote_url.strip_prefix("file://") {
             let src = Path::new(stripped);
-            std::fs::copy(src, &path).map_err(|e| AssemblyError::Download(e.to_string()))?;
+            tokio::fs::copy(src, &path)
+                .await
+                .map_err(|e| AssemblyError::Download(e.to_string()))?;
             return Ok(path);
         }
 
@@ -128,7 +130,9 @@ impl ShotstackAssembler {
             .bytes()
             .await
             .map_err(|e| AssemblyError::Download(e.to_string()))?;
-        std::fs::write(&path, &bytes).map_err(|e| AssemblyError::Cache(e.to_string()))?;
+        tokio::fs::write(&path, &bytes)
+            .await
+            .map_err(|e| AssemblyError::Cache(e.to_string()))?;
         Ok(path)
     }
 }

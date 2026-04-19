@@ -1,9 +1,8 @@
 //! Deterministic stub used by tests and as the default backend before Phase
 //! 4.2 wires a real AI router with provider credentials.
 
-use std::sync::Mutex;
-
 use async_trait::async_trait;
+use parking_lot::Mutex;
 
 use super::types::{
     GenerateVariantsInput, Image2ImageInput, ImagePipeline, ImagePipelineError, ImageResult,
@@ -22,19 +21,19 @@ impl StubImagePipeline {
     }
 
     pub fn force_error(&self, message: impl Into<String>) {
-        *self.force_error.lock().expect("poisoned") = Some(message.into());
+        *self.force_error.lock() = Some(message.into());
     }
 
     pub fn calls(&self) -> Vec<String> {
-        self.calls.lock().expect("poisoned").clone()
+        self.calls.lock().clone()
     }
 
     fn record(&self, op: &str) {
-        self.calls.lock().expect("poisoned").push(op.to_string());
+        self.calls.lock().push(op.to_string());
     }
 
     fn check_forced(&self) -> Result<(), ImagePipelineError> {
-        if let Some(msg) = self.force_error.lock().expect("poisoned").clone() {
+        if let Some(msg) = self.force_error.lock().clone() {
             return Err(ImagePipelineError::Router(msg));
         }
         Ok(())

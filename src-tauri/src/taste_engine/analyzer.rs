@@ -4,7 +4,9 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
+
+use parking_lot::Mutex;
 
 use async_trait::async_trait;
 use base64::prelude::{Engine as _, BASE64_STANDARD};
@@ -36,17 +38,14 @@ impl StubVisionAnalyzer {
     }
 
     pub fn seed(&self, path: PathBuf, analysis: ImageAnalysis) {
-        self.seeded
-            .lock()
-            .expect("seeded mutex poisoned")
-            .insert(path, analysis);
+        self.seeded.lock().insert(path, analysis);
     }
 }
 
 #[async_trait]
 impl VisionAnalyzer for StubVisionAnalyzer {
     async fn analyze(&self, image: &Path) -> Result<ImageAnalysis, TasteError> {
-        let seeded = self.seeded.lock().expect("seeded mutex poisoned");
+        let seeded = self.seeded.lock();
         if let Some(analysis) = seeded.get(image) {
             return Ok(analysis.clone());
         }
@@ -466,10 +465,7 @@ mod tests {
             model: crate::ai_router::Model,
             request: &AiRequest,
         ) -> Result<crate::ai_router::AiResponse, crate::ai_router::ProviderError> {
-            self.calls
-                .lock()
-                .expect("calls mutex poisoned")
-                .push(request.id.clone());
+            self.calls.lock().push(request.id.clone());
             Ok(crate::ai_router::AiResponse {
                 request_id: request.id.clone(),
                 model,
@@ -529,7 +525,7 @@ mod tests {
         // an independent recomputation, and the first/second analysis
         // results must be identical because both derive from the same
         // cached (or first-shot) AiResponse.
-        let calls = captured.calls.lock().unwrap();
+        let calls = captured.calls.lock();
         assert!(
             !calls.is_empty(),
             "analyzer should issue at least one router call"

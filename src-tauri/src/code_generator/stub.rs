@@ -1,9 +1,9 @@
 //! Deterministic test double for the code generator.
 
 use std::path::PathBuf;
-use std::sync::Mutex;
 
 use async_trait::async_trait;
+use parking_lot::Mutex;
 
 use super::types::{CodeGenError, CodeGenerator, GeneratedFile, GeneratedProject, GenerationInput};
 
@@ -19,29 +19,21 @@ impl StubCodeGenerator {
     }
 
     pub fn last_input(&self) -> Option<GenerationInput> {
-        self.last_input
-            .lock()
-            .expect("last_input mutex poisoned")
-            .clone()
+        self.last_input.lock().clone()
     }
 
     pub fn force_error(&self, message: impl Into<String>) {
-        *self.force_error.lock().expect("force_error mutex poisoned") = Some(message.into());
+        *self.force_error.lock() = Some(message.into());
     }
 }
 
 #[async_trait]
 impl CodeGenerator for StubCodeGenerator {
     async fn generate(&self, input: GenerationInput) -> Result<GeneratedProject, CodeGenError> {
-        if let Some(msg) = self
-            .force_error
-            .lock()
-            .expect("force_error mutex poisoned")
-            .clone()
-        {
+        if let Some(msg) = self.force_error.lock().clone() {
             return Err(CodeGenError::Provider(msg));
         }
-        *self.last_input.lock().expect("last_input mutex poisoned") = Some(input.clone());
+        *self.last_input.lock() = Some(input.clone());
         Ok(GeneratedProject {
             summary: format!("Stub project for \"{}\"", input.prompt.trim()),
             files: vec![

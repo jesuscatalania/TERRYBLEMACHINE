@@ -2,9 +2,9 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Mutex;
 
 use async_trait::async_trait;
+use parking_lot::Mutex;
 
 use super::types::{AnalysisResult, AnalyzerError, UrlAnalyzer};
 
@@ -21,14 +21,11 @@ impl StubUrlAnalyzer {
     }
 
     pub fn seed(&self, url: impl Into<String>, result: AnalysisResult) {
-        self.seeded
-            .lock()
-            .expect("seeded mutex poisoned")
-            .insert(url.into(), result);
+        self.seeded.lock().insert(url.into(), result);
     }
 
     pub fn force_error(&self, message: impl Into<String>) {
-        *self.force_error.lock().expect("force_error mutex poisoned") = Some(message.into());
+        *self.force_error.lock() = Some(message.into());
     }
 }
 
@@ -56,15 +53,10 @@ impl UrlAnalyzer for StubUrlAnalyzer {
         _screenshot_path: Option<&Path>,
         _assets_dir: Option<&Path>,
     ) -> Result<AnalysisResult, AnalyzerError> {
-        if let Some(msg) = self
-            .force_error
-            .lock()
-            .expect("force_error mutex poisoned")
-            .clone()
-        {
+        if let Some(msg) = self.force_error.lock().clone() {
             return Err(AnalyzerError::Sidecar(msg));
         }
-        let seeded = self.seeded.lock().expect("seeded mutex poisoned");
+        let seeded = self.seeded.lock();
         Ok(seeded
             .get(url)
             .cloned()

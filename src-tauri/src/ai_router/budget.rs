@@ -337,8 +337,8 @@ fn human_duration(d: Duration) -> String {
 
 #[cfg(test)]
 pub struct TestClock {
-    today: std::sync::Mutex<NaiveDate>,
-    now: std::sync::Mutex<DateTime<Utc>>,
+    today: parking_lot::Mutex<NaiveDate>,
+    now: parking_lot::Mutex<DateTime<Utc>>,
 }
 
 #[cfg(test)]
@@ -349,15 +349,15 @@ impl TestClock {
             .map(|ndt| ndt.and_utc())
             .unwrap_or_else(Utc::now);
         Self {
-            today: std::sync::Mutex::new(date),
-            now: std::sync::Mutex::new(now),
+            today: parking_lot::Mutex::new(date),
+            now: parking_lot::Mutex::new(now),
         }
     }
 
     pub fn set(&self, date: NaiveDate) {
-        *self.today.lock().unwrap() = date;
+        *self.today.lock() = date;
         if let Some(ndt) = date.and_hms_opt(12, 0, 0) {
-            *self.now.lock().unwrap() = ndt.and_utc();
+            *self.now.lock() = ndt.and_utc();
         }
     }
 }
@@ -365,10 +365,10 @@ impl TestClock {
 #[cfg(test)]
 impl Clock for TestClock {
     fn today(&self) -> NaiveDate {
-        *self.today.lock().unwrap()
+        *self.today.lock()
     }
     fn now(&self) -> DateTime<Utc> {
-        *self.now.lock().unwrap()
+        *self.now.lock()
     }
 }
 
