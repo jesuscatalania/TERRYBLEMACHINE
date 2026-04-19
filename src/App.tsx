@@ -1,8 +1,9 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { useCallback, useState } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { WelcomeModal } from "@/components/onboarding/WelcomeModal";
 import { NewProjectDialog } from "@/components/projects/NewProjectDialog";
+import { ModuleLoadingFallback } from "@/components/shell/ModuleLoadingFallback";
 import { Shell } from "@/components/shell/Shell";
 import { ShortcutHelpOverlay } from "@/components/shell/ShortcutHelpOverlay";
 import { Toaster } from "@/components/ui/Toast";
@@ -13,15 +14,26 @@ import { useModuleRouteSync } from "@/hooks/useModuleRouteSync";
 import { useProjectsBoot } from "@/hooks/useProjectsBoot";
 import { useUndoRedo } from "@/hooks/useUndoRedo";
 import { createProject as createProjectCommand, type NewProjectInput } from "@/lib/projectCommands";
-import { DesignSystemPage } from "@/pages/DesignSystem";
-import { Graphic2DPage } from "@/pages/Graphic2D";
-import { Graphic3DPage } from "@/pages/Graphic3D";
-import { TypographyPage } from "@/pages/Typography";
-import { VideoPage } from "@/pages/Video";
-import { WebsiteBuilderPage } from "@/pages/WebsiteBuilder";
 import { useAppStore } from "@/stores/appStore";
 import { useProjectStore } from "@/stores/projectStore";
 import { useUiStore } from "@/stores/uiStore";
+
+const DesignSystemPage = lazy(() =>
+  import("@/pages/DesignSystem").then((m) => ({ default: m.DesignSystemPage })),
+);
+const Graphic2DPage = lazy(() =>
+  import("@/pages/Graphic2D").then((m) => ({ default: m.Graphic2DPage })),
+);
+const Graphic3DPage = lazy(() =>
+  import("@/pages/Graphic3D").then((m) => ({ default: m.Graphic3DPage })),
+);
+const TypographyPage = lazy(() =>
+  import("@/pages/Typography").then((m) => ({ default: m.TypographyPage })),
+);
+const VideoPage = lazy(() => import("@/pages/Video").then((m) => ({ default: m.VideoPage })));
+const WebsiteBuilderPage = lazy(() =>
+  import("@/pages/WebsiteBuilder").then((m) => ({ default: m.WebsiteBuilderPage })),
+);
 
 function AnimatedRoutes() {
   const location = useLocation();
@@ -37,16 +49,18 @@ function AnimatedRoutes() {
         transition={{ duration: 0.14, ease: "easeOut" }}
         className="h-full"
       >
-        <Routes location={location}>
-          <Route path="/" element={<Navigate to="/website" replace />} />
-          <Route path="/website" element={<WebsiteBuilderPage />} />
-          <Route path="/graphic2d" element={<Graphic2DPage />} />
-          <Route path="/graphic3d" element={<Graphic3DPage />} />
-          <Route path="/video" element={<VideoPage />} />
-          <Route path="/typography" element={<TypographyPage />} />
-          <Route path="/design-system" element={<DesignSystemPage />} />
-          <Route path="*" element={<Navigate to="/website" replace />} />
-        </Routes>
+        <Suspense fallback={<ModuleLoadingFallback />}>
+          <Routes location={location}>
+            <Route path="/" element={<Navigate to="/website" replace />} />
+            <Route path="/website" element={<WebsiteBuilderPage />} />
+            <Route path="/graphic2d" element={<Graphic2DPage />} />
+            <Route path="/graphic3d" element={<Graphic3DPage />} />
+            <Route path="/video" element={<VideoPage />} />
+            <Route path="/typography" element={<TypographyPage />} />
+            <Route path="/design-system" element={<DesignSystemPage />} />
+            <Route path="*" element={<Navigate to="/website" replace />} />
+          </Routes>
+        </Suspense>
       </motion.div>
     </AnimatePresence>
   );

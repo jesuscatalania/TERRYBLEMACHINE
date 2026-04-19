@@ -36,21 +36,21 @@ describe("App", () => {
     expect(useAppStore.getState().activeModule).toBe("website");
   });
 
-  it("renders the Typography page at /typography", () => {
+  it("renders the Typography page at /typography", async () => {
     renderAt("/typography");
-    expect(screen.getByText(/MOD—05 · TYPE & LOGO/)).toBeInTheDocument();
+    expect(await screen.findByText(/MOD—05 · TYPE & LOGO/)).toBeInTheDocument();
     expect(useAppStore.getState().activeModule).toBe("typography");
   });
 
-  it("renders the Website builder at /website", () => {
+  it("renders the Website builder at /website", async () => {
     renderAt("/website");
-    expect(screen.getByText(/WEBSITE BUILDER/)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Describe the site/i)).toBeInTheDocument();
+    expect(await screen.findByText(/WEBSITE BUILDER/)).toBeInTheDocument();
+    expect(await screen.findByLabelText(/Describe the site/i)).toBeInTheDocument();
   });
 
-  it("renders the design system page at /design-system", () => {
+  it("renders the design system page at /design-system", async () => {
     renderAt("/design-system");
-    expect(screen.getByRole("heading", { name: /^design system$/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /^design system$/i })).toBeInTheDocument();
   });
 
   it("unknown routes fall back to /website (builder)", async () => {
@@ -58,9 +58,9 @@ describe("App", () => {
     expect(await screen.findByText(/WEBSITE BUILDER/)).toBeInTheDocument();
   });
 
-  it("renders the shell on every route", () => {
+  it("renders the shell on every route", async () => {
     renderAt("/video");
-    expect(screen.getByText("TERRYBLEMACHINE")).toBeInTheDocument();
+    expect(await screen.findByText("TERRYBLEMACHINE")).toBeInTheDocument();
     expect(screen.getByRole("contentinfo")).toBeInTheDocument();
   });
 });
