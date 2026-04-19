@@ -117,8 +117,8 @@ pub enum ImagePipelineError {
     #[error("no image URL in response")]
     EmptyResponse,
 
-    #[error("all {0} variants failed")]
-    AllVariantsFailed(u32),
+    #[error("all {count} variants failed: {last_error}")]
+    AllVariantsFailed { count: u32, last_error: String },
 }
 
 // ─── Trait ─────────────────────────────────────────────────────────────

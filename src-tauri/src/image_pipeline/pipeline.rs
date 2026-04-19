@@ -220,18 +220,21 @@ impl ImagePipeline for RouterImagePipeline {
 
         let results = join_all(futures).await;
         let mut out = Vec::new();
+        let mut last_err: Option<String> = None;
         for r in results {
             match r {
-                Ok(resp) => {
-                    if let Ok(image) = response_to_result(resp) {
-                        out.push(image);
-                    }
-                }
-                Err(_) => continue,
+                Ok(resp) => match response_to_result(resp) {
+                    Ok(image) => out.push(image),
+                    Err(e) => last_err = Some(e.to_string()),
+                },
+                Err(e) => last_err = Some(e.to_string()),
             }
         }
         if out.is_empty() {
-            return Err(ImagePipelineError::AllVariantsFailed(n as u32));
+            return Err(ImagePipelineError::AllVariantsFailed {
+                count: n as u32,
+                last_error: last_err.unwrap_or_else(|| "unknown".to_string()),
+            });
         }
         Ok(out)
     }

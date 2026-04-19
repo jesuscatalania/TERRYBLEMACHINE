@@ -24,7 +24,7 @@ pub enum ImagePipelineIpcError {
     InvalidInput(String),
     Router(String),
     EmptyResponse,
-    AllVariantsFailed(u32),
+    AllVariantsFailed(String),
 }
 
 impl From<ImagePipelineError> for ImagePipelineIpcError {
@@ -33,7 +33,9 @@ impl From<ImagePipelineError> for ImagePipelineIpcError {
             ImagePipelineError::InvalidInput(m) => Self::InvalidInput(m),
             ImagePipelineError::Router(m) => Self::Router(m),
             ImagePipelineError::EmptyResponse => Self::EmptyResponse,
-            ImagePipelineError::AllVariantsFailed(n) => Self::AllVariantsFailed(n),
+            ImagePipelineError::AllVariantsFailed { count, last_error } => {
+                Self::AllVariantsFailed(format!("{count} variants failed: {last_error}"))
+            }
         }
     }
 }
