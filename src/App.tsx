@@ -6,6 +6,7 @@ import { NewProjectDialog } from "@/components/projects/NewProjectDialog";
 import { Shell } from "@/components/shell/Shell";
 import { Toaster } from "@/components/ui/Toast";
 import { useBudgetPoll } from "@/hooks/useBudgetPoll";
+import { useGlobalKeyboardDispatch } from "@/hooks/useGlobalKeyboardDispatch";
 import { useModuleRouteSync } from "@/hooks/useModuleRouteSync";
 import { useProjectsBoot } from "@/hooks/useProjectsBoot";
 import { useUndoRedo } from "@/hooks/useUndoRedo";
@@ -52,6 +53,7 @@ function AnimatedRoutes() {
 function App() {
   useProjectsBoot();
   useUndoRedo();
+  useGlobalKeyboardDispatch();
   useBudgetPoll();
   const [newDialogOpen, setNewDialogOpen] = useState(false);
   const activeModule = useAppStore((s) => s.activeModule);
