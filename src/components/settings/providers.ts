@@ -8,6 +8,8 @@
 
 export type ProviderPlan = "Subscription (Pro/Max)" | "Pay-per-Use";
 
+export type ProviderTransport = "auto" | "api" | "cli";
+
 export interface ProviderDef {
   id: string;
   label: string;
@@ -15,6 +17,12 @@ export interface ProviderDef {
   helpUrl: string;
   /** Short hint rendered next to the input. Optional. */
   hint?: string;
+  /**
+   * Optional set of transport channels the provider can be reached over.
+   * When present, the Settings row renders a transport selector. Currently
+   * only Claude supports this (auto | api | cli).
+   */
+  transports?: readonly ProviderTransport[];
 }
 
 export const PROVIDERS: readonly ProviderDef[] = [
@@ -23,6 +31,7 @@ export const PROVIDERS: readonly ProviderDef[] = [
     label: "Anthropic Claude",
     plan: "Subscription (Pro/Max)",
     helpUrl: "https://console.anthropic.com/settings/keys",
+    transports: ["auto", "api", "cli"] as const,
   },
   {
     id: "kling",

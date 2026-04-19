@@ -1,8 +1,14 @@
 import { Eye, EyeOff, Trash2 } from "lucide-react";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { LoadingButton } from "@/components/ui/LoadingButton";
+import {
+  type ClaudeTransport,
+  detectClaudeCli,
+  getClaudeTransport,
+  setClaudeTransport,
+} from "@/lib/claudeTransport";
 import { deleteApiKey, isKeyStoreIpcError, storeApiKey } from "@/lib/keychainCommands";
 import { useUiStore } from "@/stores/uiStore";
 import type { ProviderDef } from "./providers";
@@ -21,6 +27,52 @@ export function ProviderKeyRow({ provider, configured, onChange }: ProviderKeyRo
   const [showKey, setShowKey] = useState(false);
   const [busy, setBusy] = useState(false);
   const notify = useUiStore((s) => s.notify);
+
+  const hasTransports = Boolean(provider.transports && provider.transports.length > 0);
+  const [transport, setTransportState] = useState<ClaudeTransport>("auto");
+  const [cliPath, setCliPath] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!hasTransports) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [current, path] = await Promise.all([getClaudeTransport(), detectClaudeCli()]);
+        if (cancelled) return;
+        setTransportState(current);
+        setCliPath(path);
+      } catch (err) {
+        if (cancelled) return;
+        notify({
+          kind: "error",
+          message: `Reading ${provider.label} transport failed`,
+          detail: String(err),
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasTransports, notify, provider.label]);
+
+  async function handleTransportChange(next: ClaudeTransport) {
+    const prev = transport;
+    setTransportState(next);
+    try {
+      await setClaudeTransport(next);
+      notify({
+        kind: "success",
+        message: `${provider.label} transport set to ${next}`,
+      });
+    } catch (err) {
+      setTransportState(prev);
+      notify({
+        kind: "error",
+        message: `Setting ${provider.label} transport failed`,
+        detail: isKeyStoreIpcError(err) ? err.detail : String(err),
+      });
+    }
+  }
 
   const trimmed = value.trim();
 
@@ -82,6 +134,21 @@ export function ProviderKeyRow({ provider, configured, onChange }: ProviderKeyRo
             configured ? "bg-emerald-500" : "bg-neutral-dark-600"
           }`}
         />
+        {hasTransports ? (
+          <select
+            data-testid={`provider-transport-${provider.id}`}
+            aria-label={`${provider.label} transport`}
+            value={transport}
+            onChange={(e) => handleTransportChange(e.target.value as ClaudeTransport)}
+            className="rounded border border-neutral-dark-600 bg-neutral-dark-800 px-1 py-0.5 font-mono text-2xs text-neutral-dark-100 uppercase tracking-label"
+          >
+            {provider.transports?.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        ) : null}
         <span className="font-mono text-2xs text-neutral-dark-100 uppercase tracking-label">
           {provider.label}
         </span>
@@ -140,6 +207,16 @@ export function ProviderKeyRow({ provider, configured, onChange }: ProviderKeyRo
           </Button>
         ) : null}
       </div>
+      {hasTransports ? (
+        <p
+          data-testid={`provider-cli-status-${provider.id}`}
+          className="font-mono text-2xs text-neutral-dark-500"
+        >
+          {cliPath
+            ? `CLI detected at ${cliPath}`
+            : "No claude CLI binary detected — run `brew install anthropic/claude-code/claude`"}
+        </p>
+      ) : null}
       <p className="font-mono text-2xs text-neutral-dark-500">
         Get your key at{" "}
         <a

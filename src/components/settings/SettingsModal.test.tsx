@@ -38,6 +38,8 @@ describe("SettingsModal", () => {
   it("renders all 9 providers when opened", async () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "list_api_keys") return Promise.resolve([]);
+      if (cmd === "get_claude_transport") return Promise.resolve("auto");
+      if (cmd === "detect_claude_cli") return Promise.resolve(null);
       return Promise.reject(new Error(`unexpected cmd: ${cmd}`));
     });
 
@@ -54,6 +56,8 @@ describe("SettingsModal", () => {
   it("marks configured providers with the green dot", async () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "list_api_keys") return Promise.resolve(["claude", "fal"]);
+      if (cmd === "get_claude_transport") return Promise.resolve("auto");
+      if (cmd === "detect_claude_cli") return Promise.resolve(null);
       return Promise.reject(new Error(`unexpected cmd: ${cmd}`));
     });
 
@@ -75,6 +79,8 @@ describe("SettingsModal", () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "list_api_keys")
         return Promise.reject({ kind: "Keychain", detail: "keychain unavailable" });
+      if (cmd === "get_claude_transport") return Promise.resolve("auto");
+      if (cmd === "detect_claude_cli") return Promise.resolve(null);
       return Promise.reject(new Error(`unexpected cmd: ${cmd}`));
     });
 
@@ -82,9 +88,9 @@ describe("SettingsModal", () => {
 
     await waitFor(() => {
       const notes = useUiStore.getState().notifications;
-      const last = notes[notes.length - 1];
-      expect(last?.kind).toBe("error");
-      expect(last?.detail).toBe("keychain unavailable");
+      const keychainToast = notes.find((n) => n.detail === "keychain unavailable");
+      expect(keychainToast).toBeDefined();
+      expect(keychainToast?.kind).toBe("error");
     });
   });
 });
