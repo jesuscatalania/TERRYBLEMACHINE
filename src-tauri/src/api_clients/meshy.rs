@@ -212,8 +212,9 @@ impl MeshyClient {
     /// Poll `GET {endpoint_path}/{task_id}` until Meshy reports a terminal
     /// status. Returns the final JSON body on `SUCCEEDED`; maps `FAILED` to
     /// [`ProviderError::Permanent`] (no retry — the content was rejected) and
-    /// exhausted attempts to [`ProviderError::Timeout`] (transient — router
-    /// may fall back).
+    /// exhausted attempts to [`ProviderError::JobAlreadySubmitted`] (NOT
+    /// retriable — Meshy is already running the job and a retry would create
+    /// a duplicate that gets billed).
     async fn poll_task(&self, task_id: &str, endpoint_path: &str) -> Result<Value, ProviderError> {
         let url = format!("{}{}/{}", self.base_url, endpoint_path, task_id);
         let key = get_api_key(&*self.key_store, KEYCHAIN_SERVICE)?;
@@ -258,7 +259,10 @@ impl MeshyClient {
             }
         }
 
-        Err(ProviderError::Timeout)
+        Err(ProviderError::JobAlreadySubmitted(format!(
+            "meshy task {task_id} did not reach a terminal status within {} poll attempts",
+            self.poll_max_attempts
+        )))
     }
 }
 
@@ -496,11 +500,17 @@ mod tests {
             .execute(Model::MeshyText3D, &text_request("x"))
             .await
             .unwrap_err();
-        // Timeout is transient so the router can fall back.
-        assert!(
-            matches!(err, ProviderError::Timeout),
-            "expected Timeout, got {err:?}"
-        );
+        // Poll exhaustion must surface as JobAlreadySubmitted (NOT Timeout)
+        // so the router doesn't re-POST and create a duplicate billable job.
+        match err {
+            ProviderError::JobAlreadySubmitted(msg) => {
+                assert!(
+                    msg.contains("t1"),
+                    "message should reference task_id, got: {msg}"
+                );
+            }
+            other => panic!("expected JobAlreadySubmitted, got {other:?}"),
+        }
     }
 
     #[tokio::test]

@@ -207,8 +207,10 @@ impl ShotstackClient {
     /// terminal status (`done` or `failed`). Returns the full JSON body on
     /// `done` so the caller can extract `response.url`; maps `failed` to
     /// [`ProviderError::Permanent`] with the server-supplied error message,
-    /// and exhausted attempts to [`ProviderError::Timeout`] (transient — the
-    /// caller may surface a "still rendering" UI hint).
+    /// and exhausted attempts to [`ProviderError::JobAlreadySubmitted`] (NOT
+    /// retriable — Shotstack is already running the render and a retry would
+    /// create a duplicate that gets billed; the user can chase the render id
+    /// on the dashboard).
     pub async fn poll_render(&self, render_id: &str) -> Result<Value, ProviderError> {
         let url = format!("{}{}/{}", self.base_url, self.env.render_path(), render_id);
         let key = get_api_key(&*self.key_store, KEYCHAIN_SERVICE)?;
@@ -252,7 +254,10 @@ impl ShotstackClient {
             }
         }
 
-        Err(ProviderError::Timeout)
+        Err(ProviderError::JobAlreadySubmitted(format!(
+            "shotstack render {render_id} did not reach a terminal status within {} poll attempts",
+            self.poll_max_attempts
+        )))
     }
 
     /// Build the render payload. Shotstack wants `{ timeline, output }`.
@@ -630,10 +635,17 @@ mod tests {
         let client =
             ShotstackClient::for_test_with_poll_budget(key_store_with_key(), server.uri(), 2);
         let err = client.poll_render("r3").await.unwrap_err();
-        assert!(
-            matches!(err, ProviderError::Timeout),
-            "expected Timeout, got {err:?}"
-        );
+        // Poll exhaustion must surface as JobAlreadySubmitted (NOT Timeout)
+        // so the router doesn't re-POST and create a duplicate billable job.
+        match err {
+            ProviderError::JobAlreadySubmitted(msg) => {
+                assert!(
+                    msg.contains("r3"),
+                    "message should reference render id, got: {msg}"
+                );
+            }
+            other => panic!("expected JobAlreadySubmitted, got {other:?}"),
+        }
     }
 
     #[test]

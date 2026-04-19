@@ -303,7 +303,9 @@ impl ReplicateClient {
     /// Replicate reports a terminal status. Returns the final JSON body on
     /// `succeeded`; maps `failed` / `canceled` to [`ProviderError::Permanent`]
     /// (no retry — the content was rejected) and exhausted attempts to
-    /// [`ProviderError::Timeout`] (transient — router may fall back).
+    /// [`ProviderError::JobAlreadySubmitted`] (NOT retriable — Replicate is
+    /// already running the prediction and a retry would create a duplicate
+    /// that gets billed).
     async fn poll_prediction(&self, get_url: &str) -> Result<Value, ProviderError> {
         let key = get_api_key(&*self.key_store, KEYCHAIN_SERVICE)?;
         let mut delay = self.poll_initial_delay;
@@ -345,7 +347,13 @@ impl ReplicateClient {
             }
         }
 
-        Err(ProviderError::Timeout)
+        // Use the prediction's GET URL as the identifier — it embeds the
+        // prediction id and is the canonical way for the user to look it up
+        // on the Replicate dashboard.
+        Err(ProviderError::JobAlreadySubmitted(format!(
+            "replicate prediction at {get_url} did not reach a terminal status within {} poll attempts",
+            self.poll_max_attempts
+        )))
     }
 }
 
@@ -758,8 +766,9 @@ mod tests {
     }
 
     /// A prediction that never reaches a terminal state must exhaust the
-    /// polling budget and surface `ProviderError::Timeout` so the router can
-    /// fall back to a different provider instead of hanging the user.
+    /// polling budget and surface `ProviderError::JobAlreadySubmitted` (NOT
+    /// `Timeout`) so the router does NOT retry — retrying would re-POST the
+    /// prediction and create a duplicate billable job.
     #[tokio::test]
     async fn replicate_polling_times_out_after_max_attempts() {
         let server = MockServer::start().await;
@@ -794,9 +803,14 @@ mod tests {
             .execute(Model::ReplicateFluxDev, &request("never finishes"))
             .await
             .unwrap_err();
-        assert!(
-            matches!(err, ProviderError::Timeout),
-            "expected Timeout, got {err:?}"
-        );
+        match err {
+            ProviderError::JobAlreadySubmitted(msg) => {
+                assert!(
+                    msg.contains("pred-timeout-1"),
+                    "message should reference the prediction GET URL, got: {msg}"
+                );
+            }
+            other => panic!("expected JobAlreadySubmitted, got {other:?}"),
+        }
     }
 }

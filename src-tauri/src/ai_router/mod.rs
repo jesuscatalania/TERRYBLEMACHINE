@@ -225,6 +225,10 @@ mod tests {
         calls: AtomicUsize,
         fail_n: usize,
         permanent_fail: bool,
+        /// If `Some`, every call fails with this fixed error (clone-on-call).
+        /// Used by tests that need to assert non-retriable variants like
+        /// `JobAlreadySubmitted` without complicating the `fail_n` counting.
+        fixed_error: Option<ProviderError>,
     }
 
     impl MockClient {
@@ -234,6 +238,19 @@ mod tests {
                 calls: AtomicUsize::new(0),
                 fail_n,
                 permanent_fail,
+                fixed_error: None,
+            }
+        }
+
+        /// Build a client that always returns the given error verbatim. The
+        /// `calls` counter still increments so tests can assert call count.
+        fn failing_with(provider: Provider, err: ProviderError) -> Self {
+            Self {
+                provider,
+                calls: AtomicUsize::new(0),
+                fail_n: 0,
+                permanent_fail: false,
+                fixed_error: Some(err),
             }
         }
     }
@@ -252,6 +269,9 @@ mod tests {
             request: &AiRequest,
         ) -> Result<AiResponse, ProviderError> {
             let n = self.calls.fetch_add(1, Ordering::SeqCst);
+            if let Some(err) = &self.fixed_error {
+                return Err(err.clone());
+            }
             if self.permanent_fail {
                 return Err(ProviderError::Permanent("nope".into()));
             }
@@ -483,5 +503,46 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].provider, Provider::Fal);
         assert_eq!(entries[0].task, Some(TaskKind::ImageGeneration));
+    }
+
+    /// Regression for debug-review C1: when a POST-then-poll client surfaces
+    /// `JobAlreadySubmitted`, the router MUST NOT retry the same model AND
+    /// MUST NOT fall back to a different model. Either action would create a
+    /// duplicate billable job server-side. The error must propagate
+    /// untouched, with exactly ONE call recorded on the primary client and
+    /// ZERO calls on the fallback.
+    #[tokio::test]
+    async fn route_does_not_retry_or_fall_back_on_job_already_submitted() {
+        let kling = Arc::new(MockClient::failing_with(
+            Provider::Kling,
+            ProviderError::JobAlreadySubmitted("task-abc still pending".into()),
+        ));
+        let runway = Arc::new(MockClient::new(Provider::Runway, 0, false));
+        let router = router_with(vec![
+            (Provider::Kling, kling.clone() as Arc<dyn AiClient>),
+            (Provider::Runway, runway.clone() as Arc<dyn AiClient>),
+        ]);
+        let err = router
+            .route(AiRequest {
+                id: "v-no-retry".into(),
+                task: TaskKind::TextToVideo,
+                priority: Priority::Normal,
+                complexity: Complexity::Medium,
+                prompt: "a clip".into(),
+                payload: serde_json::Value::Null,
+            })
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                RouterError::Provider(ProviderError::JobAlreadySubmitted(_))
+            ),
+            "expected JobAlreadySubmitted, got {err:?}"
+        );
+        // CRITICAL: only ONE call on the primary — no in-model retry.
+        assert_eq!(kling.calls.load(Ordering::SeqCst), 1);
+        // CRITICAL: ZERO calls on the fallback — no cross-model fallback.
+        assert_eq!(runway.calls.load(Ordering::SeqCst), 0);
     }
 }

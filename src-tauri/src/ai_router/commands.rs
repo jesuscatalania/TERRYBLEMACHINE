@@ -28,6 +28,11 @@ pub enum RouterIpcError {
     Timeout,
     Auth(String),
     Permanent(String),
+    /// The provider client POSTed a job but never observed a terminal status
+    /// while polling. The remote job may still be billed; the router refuses
+    /// to retry to avoid creating a duplicate. Surface this verbatim so the
+    /// frontend can advise the user to check the provider dashboard.
+    JobAlreadySubmitted(String),
     AllFallbacksFailed(Option<String>),
     BudgetExceeded(String),
 }
@@ -50,6 +55,7 @@ fn provider_to_ipc(err: ProviderError) -> RouterIpcError {
         ProviderError::Timeout => RouterIpcError::Timeout,
         ProviderError::Auth(msg) => RouterIpcError::Auth(msg),
         ProviderError::Permanent(msg) => RouterIpcError::Permanent(msg),
+        ProviderError::JobAlreadySubmitted(msg) => RouterIpcError::JobAlreadySubmitted(msg),
     }
 }
 

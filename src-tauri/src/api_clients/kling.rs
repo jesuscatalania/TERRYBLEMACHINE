@@ -262,7 +262,9 @@ impl KlingClient {
     /// [`super::runway::RunwayClient::poll_task`]. Accepts upper- and
     /// lower-case status strings; `SUCCEED` → return final body;
     /// `FAILED` → [`ProviderError::Permanent`]; exhausted attempts →
-    /// [`ProviderError::Timeout`] (transient — router may fall back).
+    /// [`ProviderError::JobAlreadySubmitted`] (NOT retriable — Kling is
+    /// already running the job and a retry would create a duplicate that
+    /// gets billed).
     async fn poll_task(&self, task_id: &str, endpoint_path: &str) -> Result<Value, ProviderError> {
         let url = format!("{}{}/{}", self.base_url, endpoint_path, task_id);
         let key = get_api_key(&*self.key_store, KEYCHAIN_SERVICE)?;
@@ -315,7 +317,10 @@ impl KlingClient {
             }
         }
 
-        Err(ProviderError::Timeout)
+        Err(ProviderError::JobAlreadySubmitted(format!(
+            "kling task {task_id} did not reach a terminal status within {} poll attempts",
+            self.poll_max_attempts
+        )))
     }
 }
 
@@ -683,9 +688,16 @@ mod tests {
             .execute(Model::Kling20, &request("x"))
             .await
             .unwrap_err();
-        assert!(
-            matches!(err, ProviderError::Timeout),
-            "expected Timeout, got {err:?}"
-        );
+        // Poll exhaustion must surface as JobAlreadySubmitted (NOT Timeout)
+        // so the router doesn't re-POST and create a duplicate billable job.
+        match err {
+            ProviderError::JobAlreadySubmitted(msg) => {
+                assert!(
+                    msg.contains("k-timeout-1"),
+                    "message should reference task_id, got: {msg}"
+                );
+            }
+            other => panic!("expected JobAlreadySubmitted, got {other:?}"),
+        }
     }
 }

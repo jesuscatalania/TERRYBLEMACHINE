@@ -51,6 +51,16 @@ pub enum ProviderError {
     /// or by switching models. Stop immediately.
     #[error("permanent: {0}")]
     Permanent(String),
+
+    /// The client successfully submitted a remote job (POST returned 2xx + a
+    /// task_id) but polling for its terminal status failed (exhausted poll
+    /// attempts, etc.). The router MUST NOT retry this — retrying would
+    /// create a duplicate billable job. Falling back to a different model
+    /// would also double-bill since the original job is still in flight
+    /// upstream. The user can re-issue the request manually if they want a
+    /// fresh attempt.
+    #[error("job submitted but polling failed: {0}")]
+    JobAlreadySubmitted(String),
 }
 
 impl ProviderError {
@@ -60,6 +70,8 @@ impl ProviderError {
             self,
             Self::Transient(_) | Self::RateLimited(_) | Self::Timeout
         )
+        // JobAlreadySubmitted intentionally NOT here — the job is in flight
+        // upstream; retry would double-bill.
     }
 
     /// Cross-model fallback eligibility — i.e. "this failure is not the user's
@@ -73,5 +85,8 @@ impl ProviderError {
                 | Self::NoClient(_)
                 | Self::Auth(_)
         )
+        // JobAlreadySubmitted intentionally NOT here — falling back to a
+        // different model would also create a duplicate job. The user already
+        // has one in flight; let it complete or be cancelled by the caller.
     }
 }
