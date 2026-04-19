@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Layers, Settings } from "lucide-react";
+import { ChevronLeft, ChevronRight, Layers, MessagesSquare, Settings } from "lucide-react";
 import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { MODULES } from "@/components/shell/modules";
@@ -92,6 +92,15 @@ export function Sidebar({ onSettings }: SidebarProps = {}) {
     label: "Type & Logo",
   });
 
+  const openChat = useCallback(() => navigate("/chat"), [navigate]);
+  useKeyboardShortcut({
+    id: "global:chat",
+    combo: "Mod+L",
+    handler: openChat,
+    scope: "global",
+    label: "Open chat",
+  });
+
   return (
     <aside className="flex h-full flex-col border-neutral-dark-600 border-r bg-neutral-dark-900">
       {/* Brand */}
@@ -148,12 +157,27 @@ export function Sidebar({ onSettings }: SidebarProps = {}) {
         </>
       )}
 
-      {/* Settings (above the bottom bar so it sits flush with the version/chevron) */}
+      {/* Chat + Settings (above the bottom bar so they sit flush with the version/chevron) */}
       <div
-        className={`mt-auto flex items-center border-neutral-dark-700 border-t py-2 ${
-          sidebarOpen ? "justify-start px-4" : "justify-center px-0"
+        className={`mt-auto flex flex-col border-neutral-dark-700 border-t py-2 ${
+          sidebarOpen ? "items-start px-4" : "items-center px-0"
         }`}
       >
+        <Tooltip content="Chat with Claude" side="right">
+          <button
+            type="button"
+            onClick={openChat}
+            aria-label="Chat with Claude"
+            className={`inline-flex items-center gap-2 rounded-xs border border-transparent text-neutral-dark-400 hover:text-neutral-dark-100 ${
+              sidebarOpen ? "h-7 px-2" : "h-7 w-7 justify-center p-0"
+            }`}
+          >
+            <MessagesSquare className="h-3.5 w-3.5" strokeWidth={1.5} aria-hidden="true" />
+            {sidebarOpen ? (
+              <span className="font-mono text-2xs uppercase tracking-label">Chat</span>
+            ) : null}
+          </button>
+        </Tooltip>
         <Tooltip content="Settings (⌘,)" side="right">
           <button
             type="button"

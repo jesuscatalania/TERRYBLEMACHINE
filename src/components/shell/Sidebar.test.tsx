@@ -1,9 +1,18 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { useAppStore } from "@/stores/appStore";
+
+const navigateMock = vi.fn();
+vi.mock("react-router-dom", async () => {
+  const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
+  return {
+    ...actual,
+    useNavigate: () => navigateMock,
+  };
+});
 
 function renderSidebar(path = "/website") {
   return render(
@@ -15,6 +24,7 @@ function renderSidebar(path = "/website") {
 
 describe("Sidebar", () => {
   beforeEach(() => {
+    navigateMock.mockReset();
     useAppStore.setState({ theme: "dark", sidebarOpen: true, activeModule: "website" });
   });
 
@@ -58,5 +68,14 @@ describe("Sidebar", () => {
     const toggle = screen.getByRole("button", { name: /collapse sidebar|expand sidebar/i });
     await user.click(toggle);
     expect(useAppStore.getState().sidebarOpen).toBe(false);
+  });
+
+  it("renders a Chat with Claude button that navigates to /chat", async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    const chatBtn = screen.getByRole("button", { name: /chat with claude/i });
+    expect(chatBtn).toBeInTheDocument();
+    await user.click(chatBtn);
+    expect(navigateMock).toHaveBeenCalledWith("/chat");
   });
 });
