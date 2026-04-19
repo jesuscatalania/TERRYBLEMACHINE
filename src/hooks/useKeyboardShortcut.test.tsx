@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { useGlobalKeyboardDispatch } from "@/hooks/useGlobalKeyboardDispatch";
 import { useKeyboardShortcut } from "@/hooks/useKeyboardShortcut";
 import { useKeyboardStore } from "@/stores/keyboardStore";
+import { useModalStackStore } from "@/stores/modalStackStore";
 
 function Probe({
   id,
@@ -27,6 +28,7 @@ function DispatcherProbe() {
 describe("useKeyboardShortcut + dispatcher", () => {
   afterEach(() => {
     useKeyboardStore.setState({ entries: new Map() });
+    useModalStackStore.setState({ stack: [] });
   });
 
   it("registers on mount, unregisters on unmount", () => {
@@ -76,5 +78,40 @@ describe("useKeyboardShortcut + dispatcher", () => {
     ta.focus();
     ta.dispatchEvent(new KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true }));
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("suppresses non-help shortcuts when a modal is open", () => {
+    const nav = vi.fn();
+    const newProject = vi.fn();
+    render(
+      <>
+        <DispatcherProbe />
+        <Probe id="nav2" combo="Mod+2" handler={nav} scope="global" />
+        <Probe id="new" combo="Mod+N" handler={newProject} scope="global" />
+      </>,
+    );
+    // Simulate any modal open.
+    useModalStackStore.getState().push("some-modal");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "2", metaKey: true }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "n", metaKey: true }));
+    expect(nav).not.toHaveBeenCalled();
+    expect(newProject).not.toHaveBeenCalled();
+  });
+
+  it("lets help overlay shortcuts (? and Mod+/) through even when a modal is open", () => {
+    const helpQ = vi.fn();
+    const helpSlash = vi.fn();
+    render(
+      <>
+        <DispatcherProbe />
+        <Probe id="help-q" combo="?" handler={helpQ} scope="global" />
+        <Probe id="help-slash" combo="Mod+/" handler={helpSlash} scope="global" />
+      </>,
+    );
+    useModalStackStore.getState().push("some-modal");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "?" }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "/", metaKey: true }));
+    expect(helpQ).toHaveBeenCalledTimes(1);
+    expect(helpSlash).toHaveBeenCalledTimes(1);
   });
 });

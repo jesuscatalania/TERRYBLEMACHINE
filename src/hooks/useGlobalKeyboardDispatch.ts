@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { eventToCombo } from "@/lib/canonicalCombo";
 import { useKeyboardStore } from "@/stores/keyboardStore";
+import { useModalStackStore } from "@/stores/modalStackStore";
 
 const SCOPE_PRIORITY: Record<string, number> = {
   page: 0,
@@ -31,6 +32,13 @@ export function useGlobalKeyboardDispatch(): void {
     function onKeyDown(e: KeyboardEvent) {
       if (isTextField(e.target)) return;
       const combo = eventToCombo(e);
+      // Modal open — let the modal handle keys; suppress global/page/module
+      // shortcuts so Cmd+1-5 (module nav), Cmd+N (new project), etc. don't
+      // fire behind the open modal. Help overlay (?, Cmd+/) remains
+      // reachable so users can summon it from anywhere.
+      if (useModalStackStore.getState().isAnyOpen()) {
+        if (combo !== "?" && combo !== "Mod+/") return;
+      }
       const matches = useKeyboardStore.getState().entriesByCombo(combo);
       if (matches.length === 0) return;
       const passing = matches.filter((m) => !m.when || m.when());

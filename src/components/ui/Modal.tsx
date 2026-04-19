@@ -1,7 +1,8 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useId } from "react";
 import { createPortal } from "react-dom";
+import { useModalStackStore } from "@/stores/modalStackStore";
 
 export interface ModalProps {
   open: boolean;
@@ -26,14 +27,32 @@ export function Modal({
   children,
   footer,
 }: ModalProps) {
+  // Stable id per-mount — identifies this modal in the shared modal stack
+  // so only the top modal's Escape handler fires when multiple are open.
+  const stackId = useId();
+
+  // Register / unregister on open-state changes. Pop on unmount as a safety
+  // net so an abrupt tree removal (route change, HMR) doesn't leak a dead
+  // id onto the stack.
+  useEffect(() => {
+    if (!open) return;
+    const { push, pop } = useModalStackStore.getState();
+    push(stackId);
+    return () => pop(stackId);
+  }, [open, stackId]);
+
   useEffect(() => {
     if (!open || !dismissible) return;
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      // Only the top-of-stack modal reacts to Escape. Stacked modals would
+      // otherwise all close on a single keypress.
+      if (!useModalStackStore.getState().isTop(stackId)) return;
+      onClose();
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open, dismissible, onClose]);
+  }, [open, dismissible, onClose, stackId]);
 
   if (typeof document === "undefined") return null;
 

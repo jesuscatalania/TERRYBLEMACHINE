@@ -27,6 +27,10 @@ export function VideoPage() {
   const [exportOpen, setExportOpen] = useState(false);
   const [renderResult, setRenderResult] = useState<AssemblyResult | null>(null);
   const [renderBusy, setRenderBusy] = useState(false);
+  // Re-entrancy guard for the "Generate segments" loop. Without it, a
+  // double-click launches two concurrent iterations over the same list
+  // and each segment gets POSTed twice.
+  const [generatingSegments, setGeneratingSegments] = useState(false);
   const segments = useVideoStore((s) => s.segments);
   const addSegment = useVideoStore((s) => s.addSegment);
   const updateSegment = useVideoStore((s) => s.updateSegment);
@@ -77,42 +81,52 @@ export function VideoPage() {
 
   // Flow (B): iterate segments and generate each via the right backend.
   async function generateAllSegments() {
-    const current = useVideoStore.getState().segments;
-    for (const seg of current) {
-      if (seg.video_url || seg.local_path) continue; // skip already-rendered
-      updateSegment(seg.id, { busy: true, error: undefined });
-      try {
-        if (seg.kind === "ai") {
-          const result = await generateVideoFromText({
-            prompt: seg.label,
-            duration_s: seg.duration_s,
-            module: "video",
+    // Guard re-entry: double-click launches two concurrent iterations over
+    // the same list — same segment POSTed twice. The try/finally ensures
+    // the flag always resets even if an unexpected sync throw bypasses the
+    // per-segment error handler below.
+    if (generatingSegments) return;
+    setGeneratingSegments(true);
+    try {
+      const current = useVideoStore.getState().segments;
+      for (const seg of current) {
+        if (seg.video_url || seg.local_path) continue; // skip already-rendered
+        updateSegment(seg.id, { busy: true, error: undefined });
+        try {
+          if (seg.kind === "ai") {
+            const result = await generateVideoFromText({
+              prompt: seg.label,
+              duration_s: seg.duration_s,
+              module: "video",
+            });
+            applyVideoResult(seg.id, result);
+          } else if (seg.kind === "remotion") {
+            const result = await renderRemotion({
+              composition: "KineticTypography",
+              props: { text: seg.label },
+            });
+            updateSegment(seg.id, {
+              busy: false,
+              local_path: result.output_path,
+              video_url: result.output_path,
+              model: "Remotion",
+              error: undefined,
+            });
+          } else {
+            updateSegment(seg.id, { busy: false });
+          }
+        } catch (err) {
+          const detail = err instanceof Error ? err.message : String(err);
+          updateSegment(seg.id, { busy: false, error: detail });
+          notify({
+            kind: "error",
+            message: `Segment "${seg.label}" failed`,
+            detail,
           });
-          applyVideoResult(seg.id, result);
-        } else if (seg.kind === "remotion") {
-          const result = await renderRemotion({
-            composition: "KineticTypography",
-            props: { text: seg.label },
-          });
-          updateSegment(seg.id, {
-            busy: false,
-            local_path: result.output_path,
-            video_url: result.output_path,
-            model: "Remotion",
-            error: undefined,
-          });
-        } else {
-          updateSegment(seg.id, { busy: false });
         }
-      } catch (err) {
-        const detail = err instanceof Error ? err.message : String(err);
-        updateSegment(seg.id, { busy: false, error: detail });
-        notify({
-          kind: "error",
-          message: `Segment "${seg.label}" failed`,
-          detail,
-        });
       }
+    } finally {
+      setGeneratingSegments(false);
     }
   }
 
@@ -220,14 +234,15 @@ export function VideoPage() {
           <span className="font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
             Tools
           </span>
-          <Button
+          <LoadingButton
             variant="secondary"
             size="sm"
             onClick={generateAllSegments}
-            disabled={segments.length === 0}
+            disabled={segments.length === 0 || generatingSegments}
+            loading={generatingSegments}
           >
             Generate segments
-          </Button>
+          </LoadingButton>
           <LoadingButton
             variant="primary"
             size="sm"

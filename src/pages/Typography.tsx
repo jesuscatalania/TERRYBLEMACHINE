@@ -42,6 +42,11 @@ export function TypographyPage() {
   const [vectorized, setVectorized] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const editorRef = useRef<SvgEditorHandle>(null);
+  // Request-id token for vectorize. User clicks variant A → Vectorize →
+  // clicks variant B mid-flight → second Vectorize; whichever returns last
+  // wins. Without this guard, a late reply from A paints the editor even
+  // though `selectedVariant === B`, shipping inconsistent brand kit.
+  const vectorizeRequestRef = useRef(0);
   const notify = useUiStore((s) => s.notify);
   const currentProject = useProjectStore((s) => s.currentProject);
 
@@ -76,21 +81,30 @@ export function TypographyPage() {
   async function handleVectorize() {
     if (!selectedVariant?.local_path) return;
     setVectorizing(true);
+    const myRequest = ++vectorizeRequestRef.current;
     try {
       const result = await vectorizeImage({
         image_path: selectedVariant.local_path,
       });
+      // Stale-result guard: if another vectorize started after us (or the
+      // selection changed, which also bumps the counter), drop this result.
+      if (myRequest !== vectorizeRequestRef.current) return;
       await editorRef.current?.loadSvg(result.svg, result.width, result.height);
       setVectorized(true);
       notify({ kind: "success", message: "Vectorized logo" });
     } catch (err) {
+      if (myRequest !== vectorizeRequestRef.current) return;
       notify({
         kind: "error",
         message: "Vectorize failed",
         detail: err instanceof Error ? err.message : String(err),
       });
     } finally {
-      setVectorizing(false);
+      // Only the winning request flips the vectorizing flag off — a stale
+      // call returning before the live one must not clear the spinner.
+      if (myRequest === vectorizeRequestRef.current) {
+        setVectorizing(false);
+      }
     }
   }
 
@@ -169,6 +183,10 @@ export function TypographyPage() {
             if (url !== selectedUrl) {
               setSelectedUrl(url);
               setVectorized(false);
+              // Invalidate any in-flight vectorize for the OLD variant —
+              // its late reply must not paint the editor now that
+              // `selectedVariant` points elsewhere.
+              vectorizeRequestRef.current++;
             }
           }}
         />

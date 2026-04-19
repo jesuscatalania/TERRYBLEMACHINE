@@ -70,6 +70,76 @@ describe("TypographyPage integration", () => {
     expect(typeof bk.exportBrandKit).toBe("function");
   });
 
+  it("drops a stale vectorize reply after the user switches selection mid-flight (race guard)", async () => {
+    const user = userEvent.setup();
+    const variants: LogoVariant[] = [
+      { url: "https://x/a.png", local_path: "/tmp/a.png", seed: 1, model: "ideogram-v3" },
+      { url: "https://x/b.png", local_path: "/tmp/b.png", seed: 2, model: "ideogram-v3" },
+    ];
+    vi.mocked(generateLogoVariants).mockResolvedValue(variants);
+
+    const svgA = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" data-src="A"/>';
+
+    // Manually-resolvable promise so we can simulate a slow vectorize for
+    // variant A, switch selection to B while A is still in flight, and
+    // then deliver A's response — which must be dropped as stale. The
+    // holder-object pattern avoids TypeScript's "never" narrowing on a
+    // closure-assigned `let` that it thinks is only ever read.
+    const control: {
+      resolveA: ((v: { svg: string; width: number; height: number }) => void) | null;
+    } = { resolveA: null };
+    vi.mocked(vectorizeImage).mockImplementation(
+      () =>
+        new Promise<{ svg: string; width: number; height: number }>((resolve) => {
+          control.resolveA = resolve;
+        }),
+    );
+
+    render(
+      <MemoryRouter>
+        <TypographyPage />
+      </MemoryRouter>,
+    );
+
+    await user.type(screen.getByLabelText(/describe the logo/i), "Acme mark");
+    await user.click(screen.getByRole("button", { name: /generate 6 variants/i }));
+    await waitFor(() => expect(generateLogoVariants).toHaveBeenCalledTimes(1));
+
+    await screen.findByTestId("logo-variant-https://x/a.png");
+    const [selectA, selectB] = screen.getAllByRole("button", { name: /select logo variant/i });
+    if (!selectA || !selectB) throw new Error("expected two variant select buttons");
+
+    // Click A → Vectorize (pending — promise intentionally never resolves yet).
+    await user.click(selectA);
+    await user.click(screen.getByRole("button", { name: /^vectorize$/i }));
+    await waitFor(() => expect(vectorizeImage).toHaveBeenCalledTimes(1));
+
+    // Switch to B. The onSelect handler bumps `vectorizeRequestRef`,
+    // invalidating the in-flight call for A. It also resets `vectorized`
+    // to false, which is the load-bearing assertion below.
+    await user.click(selectB);
+
+    // Now deliver A's response — must be dropped. Without the guard,
+    // `setVectorized(true)` would fire and the Export button would
+    // enable with an SVG that doesn't match the selected PNG.
+    control.resolveA?.({ svg: svgA, width: 10, height: 10 });
+
+    // Give the promise chain a tick to settle.
+    await waitFor(() =>
+      expect(useUiStore.getState().notifications.length).toBeGreaterThanOrEqual(0),
+    );
+
+    // No "Vectorized logo" success toast fires for the stale reply.
+    const successes = useUiStore
+      .getState()
+      .notifications.filter((n) => n.kind === "success" && /vectorized/i.test(n.message));
+    expect(successes).toHaveLength(0);
+
+    // Export brand kit button stays disabled — vectorized=false after
+    // selection change, and the stale result didn't flip it back to true.
+    expect(screen.getByRole("button", { name: /export brand kit/i })).toBeDisabled();
+  });
+
   it("walks Generate → select → Vectorize → Export → brand kit success toast", async () => {
     const user = userEvent.setup();
     const variants: LogoVariant[] = [

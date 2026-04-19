@@ -1,7 +1,12 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Modal } from "@/components/ui/Modal";
+import { useModalStackStore } from "@/stores/modalStackStore";
+
+afterEach(() => {
+  useModalStackStore.setState({ stack: [] });
+});
 
 describe("Modal", () => {
   it("does not render when open=false", () => {
@@ -60,5 +65,36 @@ describe("Modal", () => {
     );
     await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("only the top-of-stack modal closes on Escape when two are open", async () => {
+    const user = userEvent.setup();
+    const onCloseA = vi.fn();
+    const onCloseB = vi.fn();
+    render(
+      <>
+        <Modal open={true} onClose={onCloseA} title="A">
+          <p>a</p>
+        </Modal>
+        <Modal open={true} onClose={onCloseB} title="B">
+          <p>b</p>
+        </Modal>
+      </>,
+    );
+    // B mounts second → sits on top of the stack. Only B should close.
+    await user.keyboard("{Escape}");
+    expect(onCloseB).toHaveBeenCalledOnce();
+    expect(onCloseA).not.toHaveBeenCalled();
+  });
+
+  it("pushes the modal onto the global stack while open", () => {
+    const { unmount } = render(
+      <Modal open={true} onClose={() => {}} title="Hello">
+        <p>body</p>
+      </Modal>,
+    );
+    expect(useModalStackStore.getState().isAnyOpen()).toBe(true);
+    unmount();
+    expect(useModalStackStore.getState().isAnyOpen()).toBe(false);
   });
 });
