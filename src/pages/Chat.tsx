@@ -69,7 +69,7 @@ export function ChatPage() {
         </button>
       </div>
 
-      <div className="overflow-y-auto p-6">
+      <div className="overflow-y-auto p-6" role="log" aria-live="polite">
         <div className="flex flex-col gap-4">
           {messages.length === 0 ? (
             <div className="flex h-full items-center justify-center font-mono text-2xs text-neutral-dark-400 uppercase tracking-label">
@@ -127,7 +127,7 @@ export function ChatPage() {
               }
               await handleSend();
             }}
-            disabled={!input.trim()}
+            disabled={!input.trim() || busy}
             loading={busy}
           >
             <Send className="h-3 w-3" strokeWidth={1.5} aria-hidden="true" />

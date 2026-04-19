@@ -45,4 +45,38 @@ describe("sendChatMessage", () => {
     expect(unlistenChunk).toHaveBeenCalled();
     expect(unlistenDone).toHaveBeenCalled();
   });
+
+  it("calls onDone exactly once when both done-event and invoke-reject occur", async () => {
+    // Reset the default beforeEach listen wiring so we can control the done listener.
+    listen.mockReset();
+    let doneCb: ((payload: { message_id: string; error?: string }) => void) | null = null;
+    listen
+      .mockResolvedValueOnce(unlistenChunk)
+      .mockImplementationOnce(
+        (_name: string, cb: (e: { payload: { message_id: string; error?: string } }) => void) => {
+          doneCb = (payload) => cb({ payload });
+          return Promise.resolve(unlistenDone);
+        },
+      );
+    // Make invoke reject AFTER we fire the done-event below.
+    let rejectInvoke: ((err: Error) => void) | null = null;
+    invoke.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectInvoke = reject;
+        }),
+    );
+    const onDone = vi.fn();
+    const promise = sendChatMessage([], "asst-1", () => {}, onDone);
+    // Give the listener awaits a tick to resolve.
+    await Promise.resolve();
+    await Promise.resolve();
+    // Simulate done-event arriving first.
+    doneCb?.({ message_id: "asst-1", error: "from-event" });
+    // Then invoke rejects.
+    rejectInvoke?.(new Error("late"));
+    await promise;
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(onDone).toHaveBeenCalledWith("from-event");
+  });
 });

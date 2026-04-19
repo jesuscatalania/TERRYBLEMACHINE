@@ -3,10 +3,9 @@
 //! render token-by-token.
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, State};
 
-use super::client::ClaudeCliClient;
-use super::discovery::detect_claude_binary;
+use crate::ai_router::commands::{AiRouterState, RouterIpcError};
 use crate::ai_router::{AiRequest, Complexity, Priority, TaskKind};
 
 #[derive(Debug, Deserialize)]
@@ -32,28 +31,24 @@ pub struct DoneEvent {
     pub error: Option<String>,
 }
 
-/// Send a chat message; streams chunks back via Tauri events.
-/// Returns the assistant message_id so the frontend can route chunks.
+/// Send a chat message; routes via AiRouter (honors user's Claude
+/// transport choice) and streams the response back via Tauri events.
+/// Returns `Ok(())` once events are emitted — the event stream is the
+/// streaming contract; the `Result` return only surfaces pre-routing
+/// plumbing failures.
 #[tauri::command]
 pub async fn chat_send_message(
     input: ChatSendInput,
     app: AppHandle,
     message_id: String,
-) -> Result<(), String> {
-    // Build a single concatenated prompt (Claude CLI doesn't accept role-tagged
-    // multi-message input via -p; we represent history as a transcript).
+    router: State<'_, AiRouterState>,
+) -> Result<(), RouterIpcError> {
     let mut transcript = String::new();
     for m in &input.messages {
         transcript.push_str(&format!("{}: {}\n", m.role, m.content));
     }
     transcript.push_str("assistant: ");
 
-    let bin = detect_claude_binary().ok_or_else(|| {
-        "claude CLI not found — install: brew install anthropic/claude-code/claude".to_string()
-    })?;
-    let client = ClaudeCliClient::new(bin);
-
-    // For chat, we use ClaudeSonnet by default (good balance of cost / quality).
     let request = AiRequest {
         id: message_id.clone(),
         task: TaskKind::TextGeneration,
@@ -64,14 +59,7 @@ pub async fn chat_send_message(
         model_override: None,
     };
 
-    // Use the existing AiClient::execute (which buffers). Streaming via events
-    // is left for a follow-up; for now we emit a single chunk with the full
-    // result then a done event. This keeps Sub-Project B unblocked.
-    use crate::ai_router::AiClient;
-    match client
-        .execute(crate::ai_router::Model::ClaudeSonnet, &request)
-        .await
-    {
+    match router.0.route(request).await {
         Ok(resp) => {
             let text = resp
                 .output
@@ -96,14 +84,15 @@ pub async fn chat_send_message(
             Ok(())
         }
         Err(e) => {
+            let ipc_err: RouterIpcError = e.into();
             let _ = app.emit(
                 "chat:stream-done",
                 DoneEvent {
                     message_id,
-                    error: Some(e.to_string()),
+                    error: Some(format!("{ipc_err:?}")),
                 },
             );
-            Err(e.to_string())
+            Ok(())
         }
     }
 }
