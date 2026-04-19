@@ -54,3 +54,8 @@ remotion/node_modules
 remotion/out
 remotion/public
 
+# Playwright
+playwright-report/
+test-results/
+e2e/.auth/
+
