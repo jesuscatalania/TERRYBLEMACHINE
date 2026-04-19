@@ -72,6 +72,27 @@ impl ClaudeClient {
         }
     }
 
+    /// Test-friendly variant that accepts a custom HTTP timeout. Used by the
+    /// timeout-pillar wiremock tests to keep wall-clock cost low (single-digit
+    /// ms instead of waiting on the default 5s timeout).
+    #[cfg(test)]
+    pub fn for_test_with_http_timeout(
+        key_store: Arc<dyn KeyStore>,
+        base_url: String,
+        http_timeout: Duration,
+    ) -> Self {
+        let http = Client::builder()
+            .timeout(http_timeout)
+            .build()
+            .expect("reqwest client builds");
+        Self {
+            http,
+            base_url,
+            key_store,
+            rate: RateLimiter::unlimited(),
+        }
+    }
+
     fn model_slug(model: Model) -> Option<&'static str> {
         match model {
             Model::ClaudeOpus => Some("claude-opus-4-7"),
@@ -418,12 +439,16 @@ mod tests {
                         "content": [{ "type": "text", "text": "late" }],
                         "stop_reason": "end_turn"
                     }))
-                    .set_delay(std::time::Duration::from_secs(10)),
+                    .set_delay(std::time::Duration::from_millis(100)),
             )
             .mount(&server)
             .await;
 
-        let client = ClaudeClient::for_test(key_store_with_key(), server.uri());
+        let client = ClaudeClient::for_test_with_http_timeout(
+            key_store_with_key(),
+            server.uri(),
+            Duration::from_millis(50),
+        );
         let err = client
             .execute(Model::ClaudeSonnet, &request("hang please"))
             .await

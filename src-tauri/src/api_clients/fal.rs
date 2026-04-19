@@ -74,6 +74,27 @@ impl FalClient {
         }
     }
 
+    /// Test-friendly variant that accepts a custom HTTP timeout. Used by the
+    /// timeout-pillar wiremock tests to keep wall-clock cost low (single-digit
+    /// ms instead of waiting on the default 5s timeout).
+    #[cfg(test)]
+    pub fn for_test_with_http_timeout(
+        key_store: Arc<dyn KeyStore>,
+        base_url: String,
+        http_timeout: Duration,
+    ) -> Self {
+        let http = Client::builder()
+            .timeout(http_timeout)
+            .build()
+            .expect("reqwest client builds");
+        Self {
+            http,
+            base_url,
+            key_store,
+            rate: RateLimiter::unlimited(),
+        }
+    }
+
     /// The endpoint path for a given supported model.
     //
     // Naming note: the `Model::FalFluxPro` variant maps to the fal.ai
@@ -522,12 +543,16 @@ mod tests {
                     .set_body_json(json!({
                         "images": [{ "url": "https://cdn/late.png", "width": 1, "height": 1 }]
                     }))
-                    .set_delay(std::time::Duration::from_secs(10)),
+                    .set_delay(std::time::Duration::from_millis(100)),
             )
             .mount(&server)
             .await;
 
-        let client = FalClient::for_test(key_store_with_key(), server.uri());
+        let client = FalClient::for_test_with_http_timeout(
+            key_store_with_key(),
+            server.uri(),
+            Duration::from_millis(50),
+        );
         let err = client
             .execute(Model::FalFluxPro, &request("hang please", Value::Null))
             .await
