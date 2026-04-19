@@ -15,6 +15,8 @@ export interface Notification {
   message: string;
   detail?: string;
   createdAt: string;
+  /** Optional progress for long-running operations: { current, total }. */
+  progress?: { current: number; total: number };
 }
 
 export type NotificationInput = Omit<Notification, "id" | "createdAt"> &
@@ -28,6 +30,7 @@ export interface UiState {
   closeModal: (id: string) => void;
   notify: (input: NotificationInput) => string;
   dismissNotification: (id: string) => void;
+  updateNotification: (id: string, patch: Partial<Notification>) => void;
   startLoading: () => void;
   finishLoading: () => void;
   isLoading: () => boolean;
@@ -62,6 +65,11 @@ export const useUiStore = create<UiState>((set, get) => ({
   dismissNotification: (id) =>
     set((state) => ({
       notifications: state.notifications.filter((n) => n.id !== id),
+    })),
+
+  updateNotification: (id, patch) =>
+    set((state) => ({
+      notifications: state.notifications.map((n) => (n.id === id ? { ...n, ...patch } : n)),
     })),
 
   startLoading: () => set((state) => ({ loadingJobs: state.loadingJobs + 1 })),

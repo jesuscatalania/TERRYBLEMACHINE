@@ -31,6 +31,9 @@ export function Toaster({ autoDismissMs = 5000 }: { autoDismissMs?: number }) {
     if (notifications.length === 0) return;
     const timers: number[] = [];
     for (const n of notifications) {
+      // Don't auto-dismiss in-flight progress toasts; the caller updates them
+      // explicitly to current === total or pushes a fresh terminal toast.
+      if (n.progress && n.progress.current < n.progress.total) continue;
       timers.push(window.setTimeout(() => dismiss(n.id), autoDismissMs));
     }
     return () => {
@@ -55,7 +58,7 @@ export function Toaster({ autoDismissMs = 5000 }: { autoDismissMs?: number }) {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 16 }}
               transition={{ duration: 0.16, ease: "easeOut" }}
-              className={`pointer-events-auto flex w-80 items-start gap-3 rounded-xs border bg-neutral-dark-900 px-3 py-2.5 shadow-elevated ${KIND_TONE[n.kind]}`}
+              className={`pointer-events-auto relative flex w-80 items-start gap-3 rounded-xs border bg-neutral-dark-900 px-3 py-2.5 shadow-elevated ${KIND_TONE[n.kind]}`}
             >
               <Icon className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.5} aria-hidden="true" />
               <div className="flex-1">
@@ -74,6 +77,17 @@ export function Toaster({ autoDismissMs = 5000 }: { autoDismissMs?: number }) {
               >
                 <X className="h-3 w-3" strokeWidth={1.5} aria-hidden="true" />
               </button>
+              {n.progress ? (
+                <div className="absolute right-0 bottom-0 left-0 h-0.5 overflow-hidden rounded-b-xs bg-neutral-dark-800">
+                  <div
+                    data-testid="toast-progress"
+                    className="h-full bg-accent-500 transition-[width] duration-200"
+                    style={{
+                      width: `${Math.round((n.progress.current / Math.max(1, n.progress.total)) * 100)}%`,
+                    }}
+                  />
+                </div>
+              ) : null}
             </motion.div>
           );
         })}

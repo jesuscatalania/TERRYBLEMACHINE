@@ -39,4 +39,22 @@ describe("Toaster", () => {
     await user.click(screen.getByRole("button", { name: /dismiss/i }));
     expect(useUiStore.getState().notifications).toHaveLength(0);
   });
+
+  it("renders progress bar when progress is present", () => {
+    useUiStore.getState().notify({
+      kind: "info",
+      message: "Rendering",
+      progress: { current: 3, total: 10 },
+    });
+    render(<Toaster />);
+    const bar = screen.getByTestId("toast-progress");
+    expect(bar).toBeInTheDocument();
+    expect(bar).toHaveStyle({ width: "30%" });
+  });
+
+  it("does NOT render a progress bar when progress is absent", () => {
+    useUiStore.getState().notify({ kind: "info", message: "Hello" });
+    render(<Toaster />);
+    expect(screen.queryByTestId("toast-progress")).not.toBeInTheDocument();
+  });
 });

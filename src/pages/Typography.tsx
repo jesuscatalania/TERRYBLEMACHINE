@@ -125,8 +125,23 @@ export function TypographyPage() {
       accent_color: dialogInput.accent_color,
       font: dialogInput.font,
     };
-    const zipPath = await exportBrandKit(input, dialogInput.destination);
-    notify({ kind: "success", message: "Brand kit exported", detail: zipPath });
+    // Show an in-flight progress toast around the export. Real backend
+    // progress events don't exist yet — the 0%-bar is a "this is happening"
+    // cue. `dismissNotification` on both success and error ensures the
+    // in-flight toast never lingers past the terminal notification.
+    const progressId = notify({
+      kind: "info",
+      message: "Building brand kit",
+      progress: { current: 0, total: 12 },
+    });
+    try {
+      const zipPath = await exportBrandKit(input, dialogInput.destination);
+      useUiStore.getState().dismissNotification(progressId);
+      notify({ kind: "success", message: "Brand kit exported", detail: zipPath });
+    } catch (err) {
+      useUiStore.getState().dismissNotification(progressId);
+      throw err;
+    }
   }
 
   return (
@@ -146,6 +161,7 @@ export function TypographyPage() {
         <LogoGallery
           variants={variants}
           selectedUrl={selectedUrl}
+          busy={busy}
           onSelect={(url) => {
             // Only reset `vectorized` when the selection actually changes.
             // Re-clicking the already-selected variant shouldn't wipe a

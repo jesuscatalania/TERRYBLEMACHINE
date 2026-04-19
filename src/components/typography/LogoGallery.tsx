@@ -1,6 +1,7 @@
 import { Heart } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { Tooltip } from "@/components/ui/Tooltip";
 import type { LogoVariant } from "@/lib/logoCommands";
 import { useLogoStore } from "@/stores/logoStore";
@@ -9,9 +10,10 @@ export interface LogoGalleryProps {
   variants: LogoVariant[];
   selectedUrl: string | null;
   onSelect: (url: string) => void;
+  busy?: boolean;
 }
 
-export function LogoGallery({ variants, selectedUrl, onSelect }: LogoGalleryProps) {
+export function LogoGallery({ variants, selectedUrl, onSelect, busy = false }: LogoGalleryProps) {
   const isFavorite = useLogoStore((s) => s.isFavorite);
   const toggleFavorite = useLogoStore((s) => s.toggleFavorite);
   // `favOnly` is gallery-local: the parent page doesn't need to know or
@@ -29,6 +31,20 @@ export function LogoGallery({ variants, selectedUrl, onSelect }: LogoGalleryProp
   useEffect(() => {
     setFavOnly(false);
   }, [variants]);
+
+  if (busy && variants.length === 0) {
+    return (
+      <div className="grid grid-cols-3 gap-2 p-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <Skeleton
+            // biome-ignore lint/suspicious/noArrayIndexKey: static placeholder list
+            key={`skeleton-${i}`}
+            className="aspect-square w-full"
+          />
+        ))}
+      </div>
+    );
+  }
 
   if (variants.length === 0) {
     return (

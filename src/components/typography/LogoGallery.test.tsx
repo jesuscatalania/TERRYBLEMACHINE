@@ -61,4 +61,17 @@ describe("LogoGallery", () => {
     fireEvent.click(screen.getByRole("button", { name: /show favorites only/i }));
     expect(screen.getByText(/no favorites yet/i)).toBeInTheDocument();
   });
+
+  it("renders 6 skeleton tiles when busy and no variants", () => {
+    const { container } = render(
+      <LogoGallery variants={[]} selectedUrl={null} onSelect={() => {}} busy={true} />,
+    );
+    const skeletons = container.querySelectorAll("[data-skeleton='true']");
+    expect(skeletons).toHaveLength(6);
+  });
+
+  it("renders 'No logos yet' when not busy and no variants", () => {
+    render(<LogoGallery variants={[]} selectedUrl={null} onSelect={() => {}} busy={false} />);
+    expect(screen.getByText(/No logos yet/i)).toBeInTheDocument();
+  });
 });
