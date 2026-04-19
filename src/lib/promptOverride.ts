@@ -51,7 +51,11 @@ export interface ParsedOverride {
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 function isKnownSlug(slug: string): boolean {
-  return Object.hasOwn(OVERRIDE_ALIASES, slug.toLowerCase());
+  // Object.hasOwn (ES2022) would be cleaner, but the project targets ES2020;
+  // hasOwnProperty.call is the safe equivalent and excludes prototype keys
+  // (e.g. "constructor", "toString") which would otherwise pass `in`.
+  // biome-ignore lint/suspicious/noPrototypeBuiltins: ES2020 target, no Object.hasOwn
+  return Object.prototype.hasOwnProperty.call(OVERRIDE_ALIASES, slug.toLowerCase());
 }
 
 export function parseOverride(input: string): ParsedOverride {
