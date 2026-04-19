@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 
 use super::common::{get_api_key, map_http_error, map_reqwest_error, RateLimiter};
 use crate::ai_router::{
-    AiClient, AiRequest, AiResponse, Model, Provider, ProviderError, ProviderUsage,
+    AiClient, AiRequest, AiResponse, Model, Provider, ProviderError, ProviderUsage, TaskKind,
 };
 use crate::keychain::KeyStore;
 
@@ -30,11 +30,22 @@ pub const KEYCHAIN_SERVICE: &str = "fal";
 /// Default rate: fal.ai free tier is lenient; 10 rps is a safe ceiling.
 const DEFAULT_RATE_PER_SEC: usize = 10;
 
+/// Upper bound on queue-status polling for Kling-via-fal video renders.
+/// Exponential back-off from 3s→15s gives ~5 minutes of render head-room;
+/// fal's Kling typically completes inside 60–120s but can drift when
+/// upstream capacity is scarce.
+const DEFAULT_POLL_MAX_ATTEMPTS: u32 = 60;
+const DEFAULT_POLL_INITIAL_DELAY: Duration = Duration::from_secs(3);
+const DEFAULT_POLL_MAX_DELAY: Duration = Duration::from_secs(15);
+
 pub struct FalClient {
     http: Client,
     base_url: String,
     key_store: Arc<dyn KeyStore>,
     rate: RateLimiter,
+    poll_max_attempts: u32,
+    poll_initial_delay: Duration,
+    poll_max_delay: Duration,
 }
 
 impl FalClient {
@@ -56,6 +67,9 @@ impl FalClient {
             base_url,
             key_store,
             rate: RateLimiter::new(rate_per_sec),
+            poll_max_attempts: DEFAULT_POLL_MAX_ATTEMPTS,
+            poll_initial_delay: DEFAULT_POLL_INITIAL_DELAY,
+            poll_max_delay: DEFAULT_POLL_MAX_DELAY,
         }
     }
 
@@ -71,6 +85,10 @@ impl FalClient {
             base_url,
             key_store,
             rate: RateLimiter::unlimited(),
+            // Tests should not sit spinning for minutes; shrink every knob.
+            poll_max_attempts: DEFAULT_POLL_MAX_ATTEMPTS,
+            poll_initial_delay: Duration::from_millis(10),
+            poll_max_delay: Duration::from_millis(100),
         }
     }
 
@@ -92,7 +110,24 @@ impl FalClient {
             base_url,
             key_store,
             rate: RateLimiter::unlimited(),
+            poll_max_attempts: DEFAULT_POLL_MAX_ATTEMPTS,
+            poll_initial_delay: Duration::from_millis(10),
+            poll_max_delay: Duration::from_millis(100),
         }
+    }
+
+    /// Like [`Self::for_test`], but with a custom cap on poll attempts. Used
+    /// by the Kling-via-fal polling tests to keep wall-clock cost low when
+    /// the queue never reaches a terminal state.
+    #[cfg(test)]
+    pub fn for_test_with_poll_budget(
+        key_store: Arc<dyn KeyStore>,
+        base_url: String,
+        max_attempts: u32,
+    ) -> Self {
+        let mut c = Self::for_test(key_store, base_url);
+        c.poll_max_attempts = max_attempts;
+        c
     }
 
     /// The endpoint path for a given supported model.
@@ -101,6 +136,10 @@ impl FalClient {
     // endpoint for Flux Pro (marketed as "Flux 1.1 Pro"). The plan doc
     // uses "Flux 2 Pro" as an aspirational name; when fal.ai ships a v2
     // endpoint, add the new `Model` variant and a new arm here.
+    //
+    // Kling-via-fal models route through this method too but the leaf
+    // segment (`/text-to-video` vs `/image-to-video`) depends on the
+    // [`TaskKind`], so callers use [`Self::kling_endpoint_for`] instead.
     fn endpoint_for(model: Model) -> Option<&'static str> {
         match model {
             Model::FalFluxPro => Some("/fal-ai/flux-pro"),
@@ -109,6 +148,33 @@ impl FalClient {
             Model::FalFluxFill => Some("/fal-ai/flux-fill"),
             _ => None,
         }
+    }
+
+    /// Kling-via-fal endpoint for a given (model, task) pair. Returns
+    /// `None` when the model isn't a fal-Kling variant or the task isn't
+    /// text-to-video / image-to-video.
+    fn kling_endpoint_for(model: Model, task: TaskKind) -> Option<&'static str> {
+        match (model, task) {
+            (Model::FalKlingV15, TaskKind::TextToVideo) => {
+                Some("/fal-ai/kling-video/v1.5/standard/text-to-video")
+            }
+            (Model::FalKlingV15, TaskKind::ImageToVideo) => {
+                Some("/fal-ai/kling-video/v1.5/standard/image-to-video")
+            }
+            (Model::FalKlingV2Master, TaskKind::TextToVideo) => {
+                Some("/fal-ai/kling-video/v2-master/text-to-video")
+            }
+            (Model::FalKlingV2Master, TaskKind::ImageToVideo) => {
+                Some("/fal-ai/kling-video/v2-master/image-to-video")
+            }
+            _ => None,
+        }
+    }
+
+    /// Whether `model` is one of the Kling-via-fal aggregator endpoints
+    /// (`send_request` routes those through the queue/poll flow).
+    fn is_fal_kling(model: Model) -> bool {
+        matches!(model, Model::FalKlingV15 | Model::FalKlingV2Master)
     }
 
     /// Build the request body for a given model and [`AiRequest`].
@@ -174,6 +240,42 @@ impl FalClient {
                     "prompt": request.prompt,
                 }))
             }
+            Model::FalKlingV15 | Model::FalKlingV2Master => {
+                // fal's Kling endpoints expect `duration` as a STRING (e.g.
+                // "5" / "10"). Default 5s matches the legacy direct-Kling
+                // client behaviour (`DEFAULT_DURATION_SEC`).
+                let duration = request
+                    .payload
+                    .get("duration")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32)
+                    .unwrap_or(5);
+                let aspect = request
+                    .payload
+                    .get("aspect_ratio")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("16:9");
+                let mut body = json!({
+                    "prompt": request.prompt,
+                    "duration": duration.to_string(),
+                    "aspect_ratio": aspect,
+                });
+                if request.task == TaskKind::ImageToVideo {
+                    let image_url = request
+                        .payload
+                        .get("image_url")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| {
+                            ProviderError::Permanent(
+                                "fal kling image-to-video: image_url required".into(),
+                            )
+                        })?;
+                    body.as_object_mut()
+                        .expect("json!({..}) yields an object")
+                        .insert("image_url".into(), json!(image_url));
+                }
+                Ok(body)
+            }
             _ => Err(ProviderError::Permanent(format!(
                 "unsupported model {model:?}"
             ))),
@@ -185,6 +287,10 @@ impl FalClient {
         model: Model,
         request: &AiRequest,
     ) -> Result<AiResponse, ProviderError> {
+        if Self::is_fal_kling(model) {
+            return self.send_kling_request(model, request).await;
+        }
+
         self.rate.acquire().await;
         let key = get_api_key(&*self.key_store, KEYCHAIN_SERVICE)?;
         let endpoint = Self::endpoint_for(model)
@@ -242,7 +348,7 @@ impl FalClient {
                     "url": first.map(|i| i.url.clone()),
                 })
             }
-            _ => unreachable!("endpoint_for guards the model set"),
+            _ => unreachable!("endpoint_for + is_fal_kling partition the supported model set"),
         };
 
         Ok(AiResponse {
@@ -252,6 +358,161 @@ impl FalClient {
             cost_cents: None,
             cached: false,
         })
+    }
+
+    /// Submit a Kling-video request through fal.ai's queue API, poll the
+    /// status URL until COMPLETED, then fetch the result and extract
+    /// `video.url`. Returns an [`AiResponse`] whose `output.video_url`
+    /// matches the shape produced by the direct-Kling client — so the
+    /// video pipeline consumes both transparently.
+    async fn send_kling_request(
+        &self,
+        model: Model,
+        request: &AiRequest,
+    ) -> Result<AiResponse, ProviderError> {
+        self.rate.acquire().await;
+        let key = get_api_key(&*self.key_store, KEYCHAIN_SERVICE)?;
+        let endpoint = Self::kling_endpoint_for(model, request.task).ok_or_else(|| {
+            ProviderError::Permanent(format!(
+                "fal kling: unsupported (model, task) pair: {:?}/{:?}",
+                model, request.task,
+            ))
+        })?;
+        let body = Self::body_for(model, request)?;
+
+        let url = format!("{}{}", self.base_url, endpoint);
+        let resp = self
+            .http
+            .post(&url)
+            .header("authorization", format!("Key {key}"))
+            .header("content-type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(map_reqwest_error)?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(map_http_error(status, &text));
+        }
+
+        let submit: Value = resp.json().await.map_err(map_reqwest_error)?;
+        let request_id = submit
+            .get("request_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let status_url = submit
+            .get("status_url")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ProviderError::Permanent("fal kling submit: missing status_url".into()))?
+            .to_string();
+        let response_url = submit
+            .get("response_url")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                ProviderError::Permanent("fal kling submit: missing response_url".into())
+            })?
+            .to_string();
+
+        let final_body = self.poll_request(&status_url, &response_url).await?;
+
+        // fal-Kling result body shape: `{ "video": { "url": ... }, "seed": .. }`.
+        let video_url = final_body
+            .get("video")
+            .and_then(|v| v.get("url"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                ProviderError::Permanent("fal kling: COMPLETED response missing video.url".into())
+            })?
+            .to_string();
+
+        Ok(AiResponse {
+            request_id: request.id.clone(),
+            model,
+            output: json!({
+                "job_id": request_id,
+                "status": "succeeded",
+                "video_url": video_url,
+            }),
+            cost_cents: None,
+            cached: false,
+        })
+    }
+
+    /// Poll fal.ai's queue status endpoint until terminal, then fetch and
+    /// return the result body. Mirrors
+    /// [`super::kling::KlingClient::poll_task`]: `COMPLETED` → fetch +
+    /// return result body; `FAILED` → [`ProviderError::Permanent`];
+    /// exhaustion → [`ProviderError::JobAlreadySubmitted`] so the router
+    /// does NOT re-POST (creates a duplicate billable job).
+    async fn poll_request(
+        &self,
+        status_url: &str,
+        response_url: &str,
+    ) -> Result<Value, ProviderError> {
+        let key = get_api_key(&*self.key_store, KEYCHAIN_SERVICE)?;
+        let mut delay = self.poll_initial_delay;
+
+        for _ in 0..self.poll_max_attempts {
+            self.rate.acquire().await;
+            let resp = self
+                .http
+                .get(status_url)
+                .header("authorization", format!("Key {key}"))
+                .send()
+                .await
+                .map_err(map_reqwest_error)?;
+
+            let status = resp.status();
+            if !status.is_success() {
+                let text = resp.text().await.unwrap_or_default();
+                return Err(map_http_error(status, &text));
+            }
+            let body: Value = resp.json().await.map_err(map_reqwest_error)?;
+            let s = body
+                .get("status")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_ascii_uppercase());
+
+            match s.as_deref() {
+                Some("COMPLETED") => {
+                    let result = self
+                        .http
+                        .get(response_url)
+                        .header("authorization", format!("Key {key}"))
+                        .send()
+                        .await
+                        .map_err(map_reqwest_error)?;
+                    let result_status = result.status();
+                    if !result_status.is_success() {
+                        let text = result.text().await.unwrap_or_default();
+                        return Err(map_http_error(result_status, &text));
+                    }
+                    return result.json().await.map_err(map_reqwest_error);
+                }
+                Some("FAILED") => {
+                    let msg = body
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .or_else(|| body.get("message").and_then(|v| v.as_str()))
+                        .unwrap_or("fal-ai task failed")
+                        .to_string();
+                    return Err(ProviderError::Permanent(msg));
+                }
+                // IN_QUEUE / IN_PROGRESS / unknown — keep polling.
+                _ => {
+                    tokio::time::sleep(delay).await;
+                    delay = (delay * 2).min(self.poll_max_delay);
+                }
+            }
+        }
+
+        Err(ProviderError::JobAlreadySubmitted(format!(
+            "fal queue request did not reach a terminal status within {} poll attempts",
+            self.poll_max_attempts
+        )))
     }
 }
 
@@ -300,7 +561,7 @@ impl AiClient for FalClient {
     }
 
     fn supports(&self, model: Model) -> bool {
-        Self::endpoint_for(model).is_some()
+        Self::endpoint_for(model).is_some() || Self::is_fal_kling(model)
     }
 
     async fn execute(
@@ -330,7 +591,7 @@ mod tests {
     use super::*;
     use crate::ai_router::{Complexity, Priority, TaskKind};
     use crate::keychain::InMemoryStore;
-    use wiremock::matchers::{header, method, path};
+    use wiremock::matchers::{body_partial_json, header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn key_store_with_key() -> Arc<dyn KeyStore> {
@@ -525,6 +786,9 @@ mod tests {
         assert!(client.supports(Model::FalSdxl));
         assert!(client.supports(Model::FalRealEsrgan));
         assert!(client.supports(Model::FalFluxFill));
+        // Kling-via-fal — routed through the same client / key.
+        assert!(client.supports(Model::FalKlingV15));
+        assert!(client.supports(Model::FalKlingV2Master));
         assert!(!client.supports(Model::ClaudeSonnet));
         assert!(!client.supports(Model::ReplicateFluxDev));
         assert!(!client.supports(Model::Kling20));
@@ -560,6 +824,136 @@ mod tests {
         assert!(
             matches!(err, ProviderError::Timeout),
             "expected Timeout, got {err:?}"
+        );
+    }
+
+    // ─── Kling-via-fal (queue + poll) ─────────────────────────────────
+    //
+    // Both tests drive the full `POST /submit` → `GET /status` (COMPLETED)
+    // → `GET /result` flow and assert the response shape matches what the
+    // video pipeline expects (`output.video_url` as a string, to mirror
+    // the direct-Kling client contract).
+
+    #[tokio::test]
+    async fn kling_v2_master_text_to_video_polls_then_returns_url() {
+        let server = MockServer::start().await;
+        // fal's queue API returns absolute URLs for status/response — the
+        // mock points them back at this MockServer so polling stays local.
+        let status_url = format!("{}/fal-ai/kling-video/requests/req-v2/status", server.uri());
+        let response_url = format!("{}/fal-ai/kling-video/requests/req-v2", server.uri());
+
+        Mock::given(method("POST"))
+            .and(path("/fal-ai/kling-video/v2-master/text-to-video"))
+            .and(header("authorization", "Key fal-test"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "request_id": "req-v2",
+                "status_url": status_url,
+                "response_url": response_url,
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/fal-ai/kling-video/requests/req-v2/status"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "status": "COMPLETED",
+            })))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/fal-ai/kling-video/requests/req-v2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "video": {
+                    "url": "https://storage.fal.media/files/abc/video.mp4",
+                    "content_type": "video/mp4",
+                    "file_size": 1234567_u64,
+                },
+                "seed": 42,
+            })))
+            .mount(&server)
+            .await;
+
+        let client = FalClient::for_test(key_store_with_key(), server.uri());
+        let req = AiRequest {
+            id: "fal-kling-v2-1".into(),
+            task: TaskKind::TextToVideo,
+            priority: Priority::Normal,
+            complexity: Complexity::Medium,
+            prompt: "a cat dancing".into(),
+            payload: Value::Null,
+        };
+        let resp = client.execute(Model::FalKlingV2Master, &req).await.unwrap();
+        assert_eq!(resp.model, Model::FalKlingV2Master);
+        assert_eq!(
+            resp.output.get("video_url").and_then(|v| v.as_str()),
+            Some("https://storage.fal.media/files/abc/video.mp4")
+        );
+        assert_eq!(
+            resp.output.get("job_id").and_then(|v| v.as_str()),
+            Some("req-v2")
+        );
+        assert_eq!(
+            resp.output.get("status").and_then(|v| v.as_str()),
+            Some("succeeded")
+        );
+    }
+
+    #[tokio::test]
+    async fn kling_v15_image_to_video_includes_image_url() {
+        let server = MockServer::start().await;
+        let status_url = format!(
+            "{}/fal-ai/kling-video/requests/req-v15/status",
+            server.uri()
+        );
+        let response_url = format!("{}/fal-ai/kling-video/requests/req-v15", server.uri());
+
+        Mock::given(method("POST"))
+            .and(path("/fal-ai/kling-video/v1.5/standard/image-to-video"))
+            .and(body_partial_json(json!({
+                "image_url": "https://src/hero.png",
+                "prompt": "cinematic dolly",
+                "duration": "5",
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "request_id": "req-v15",
+                "status_url": status_url,
+                "response_url": response_url,
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/fal-ai/kling-video/requests/req-v15/status"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "status": "COMPLETED",
+            })))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/fal-ai/kling-video/requests/req-v15"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "video": { "url": "https://storage.fal.media/files/xyz/i2v.mp4" }
+            })))
+            .mount(&server)
+            .await;
+
+        let client = FalClient::for_test(key_store_with_key(), server.uri());
+        let req = AiRequest {
+            id: "fal-kling-v15-1".into(),
+            task: TaskKind::ImageToVideo,
+            priority: Priority::Normal,
+            complexity: Complexity::Medium,
+            prompt: "cinematic dolly".into(),
+            payload: json!({ "image_url": "https://src/hero.png" }),
+        };
+        let resp = client.execute(Model::FalKlingV15, &req).await.unwrap();
+        assert_eq!(
+            resp.output.get("video_url").and_then(|v| v.as_str()),
+            Some("https://storage.fal.media/files/xyz/i2v.mp4")
         );
     }
 }

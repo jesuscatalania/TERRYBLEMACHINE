@@ -46,6 +46,13 @@ pub enum Model {
     FalSdxl,
     FalRealEsrgan,
     FalFluxFill,
+    /// Kling 1.5 standard (text- or image-to-video) via fal.ai aggregator.
+    /// Routed through [`Provider::Fal`] — no separate Kling key required.
+    FalKlingV15,
+    /// Kling 2.0 master (text- or image-to-video) via fal.ai aggregator.
+    /// Higher quality + slower than V1.5; default video model in the
+    /// routing chain (see `router.rs::DefaultRoutingStrategy`).
+    FalKlingV2Master,
     // Replicate (catch-all; the slug specifies the underlying model)
     ReplicateFluxDev,
     /// depth-anything/depth-anything-v2-large on Replicate.
@@ -67,9 +74,12 @@ impl Model {
             Self::ShotstackMontage => Provider::Shotstack,
             Self::IdeogramV3 => Provider::Ideogram,
             Self::MeshyText3D | Self::MeshyImage3D => Provider::Meshy,
-            Self::FalFluxPro | Self::FalSdxl | Self::FalRealEsrgan | Self::FalFluxFill => {
-                Provider::Fal
-            }
+            Self::FalFluxPro
+            | Self::FalSdxl
+            | Self::FalRealEsrgan
+            | Self::FalFluxFill
+            | Self::FalKlingV15
+            | Self::FalKlingV2Master => Provider::Fal,
             Self::ReplicateFluxDev | Self::ReplicateDepthAnythingV2 | Self::ReplicateTripoSR => {
                 Provider::Replicate
             }

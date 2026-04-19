@@ -16,6 +16,14 @@ use super::{
 /// Build the full set of provider clients. Clients do not hit the network
 /// until dispatched; missing API keys surface as `ProviderError::Auth`
 /// during `execute`, which the router treats as "try another model".
+///
+/// Note on Kling: `KlingClient` (direct Kling API) stays registered so
+/// users who configure a `kling` keychain entry can use it as an
+/// emergency fallback, but the default video chain
+/// (`router.rs::DefaultRoutingStrategy`) routes text-to-video /
+/// image-to-video through the fal.ai aggregator
+/// (`Model::FalKlingV2Master` / `Model::FalKlingV15`). Under the default
+/// routing strategy, `Model::Kling20` is never selected.
 pub fn build_default_clients(keystore: Arc<dyn KeyStore>) -> HashMap<Provider, Arc<dyn AiClient>> {
     let mut m: HashMap<Provider, Arc<dyn AiClient>> = HashMap::new();
     m.insert(

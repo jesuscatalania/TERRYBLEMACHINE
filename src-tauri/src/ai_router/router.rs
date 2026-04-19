@@ -74,11 +74,18 @@ impl RoutingStrategy for DefaultRoutingStrategy {
             // Logos — only Ideogram reliably renders text inside images.
             (Logo, _) => RouteDecision::new(IdeogramV3),
 
-            // Video — Kling leads on quality, Runway on motion control,
-            // Higgsfield aggregates alternatives.
-            (TextToVideo, _) | (ImageToVideo, _) => {
-                RouteDecision::with_fallbacks(Kling20, vec![RunwayGen3, HiggsfieldMulti])
-            }
+            // Video — Kling V2 master (via fal.ai aggregator) is the new
+            // default. V1.5 (also via fal) is the cheaper fallback; Runway
+            // and Higgsfield sit at the tail of the chain as last-resort
+            // options if fal.ai is down. The direct Kling client
+            // (`Model::Kling20`) is intentionally NOT in this chain — it
+            // stays registered so advanced users can opt in by configuring
+            // a direct Kling key, but the default flow only needs the
+            // single `fal` keychain entry.
+            (TextToVideo, _) | (ImageToVideo, _) => RouteDecision::with_fallbacks(
+                FalKlingV2Master,
+                vec![FalKlingV15, RunwayGen3, HiggsfieldMulti],
+            ),
             (VideoMontage, _) => RouteDecision::new(ShotstackMontage),
 
             // 3D — Meshy is the Pro-grade default. TripoSR (on Replicate)
@@ -220,10 +227,31 @@ mod tests {
     }
 
     #[test]
-    fn video_chain_is_kling_runway_higgsfield() {
+    fn video_chain_uses_fal_kling_then_runway_then_higgsfield() {
         let d = DefaultRoutingStrategy.select(&req(TaskKind::TextToVideo, Complexity::Medium));
-        assert_eq!(d.primary, Model::Kling20);
-        assert_eq!(d.fallbacks, vec![Model::RunwayGen3, Model::HiggsfieldMulti]);
+        assert_eq!(d.primary, Model::FalKlingV2Master);
+        assert_eq!(
+            d.fallbacks,
+            vec![
+                Model::FalKlingV15,
+                Model::RunwayGen3,
+                Model::HiggsfieldMulti,
+            ]
+        );
+    }
+
+    #[test]
+    fn image_to_video_shares_text_to_video_chain() {
+        let d = DefaultRoutingStrategy.select(&req(TaskKind::ImageToVideo, Complexity::Medium));
+        assert_eq!(d.primary, Model::FalKlingV2Master);
+        assert_eq!(
+            d.fallbacks,
+            vec![
+                Model::FalKlingV15,
+                Model::RunwayGen3,
+                Model::HiggsfieldMulti,
+            ]
+        );
     }
 
     #[test]

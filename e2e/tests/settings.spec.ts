@@ -32,13 +32,15 @@ test.describe("Settings modal", () => {
 
     for (const label of [
       "Anthropic Claude",
-      "Kling AI Video",
+      // Kling direct is now optional — fal.ai handles the default Kling
+      // routing, so the label is flagged as such.
+      "Kling AI Video (direct — optional, fal handles Kling by default)",
       "Runway Gen-3",
       "Higgsfield Video",
       "Shotstack (timeline assembly)",
       "Ideogram (logos / typography)",
       "Meshy 3D",
-      "fal.ai (images)",
+      "fal.ai (images + Kling video)",
       "Replicate (specialty models)",
     ]) {
       await expect(dialog.getByText(label)).toBeVisible();

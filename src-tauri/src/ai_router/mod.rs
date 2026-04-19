@@ -356,11 +356,15 @@ mod tests {
 
     #[tokio::test]
     async fn route_falls_back_to_next_model_when_primary_exhausts_retries() {
-        // Video task uses fallback chain Kling → Runway → Higgsfield.
-        let kling = Arc::new(MockClient::new(Provider::Kling, 99, false));
+        // Video task now routes through fal.ai aggregator:
+        // FalKlingV2Master → FalKlingV15 → Runway → Higgsfield.
+        // The first two fallbacks share `Provider::Fal`, so one MockClient
+        // registered under `Provider::Fal` will be consulted twice before
+        // routing lands on the Runway provider.
+        let fal = Arc::new(MockClient::new(Provider::Fal, 99, false));
         let runway = Arc::new(MockClient::new(Provider::Runway, 0, false));
         let router = router_with(vec![
-            (Provider::Kling, kling.clone() as Arc<dyn AiClient>),
+            (Provider::Fal, fal.clone() as Arc<dyn AiClient>),
             (Provider::Runway, runway.clone() as Arc<dyn AiClient>),
         ]);
         let resp = router
@@ -375,18 +379,20 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.model, Model::RunwayGen3);
-        // Kling: 3 attempts (all fail). Runway: 1 success.
-        assert_eq!(kling.calls.load(Ordering::SeqCst), 3);
+        // fal is tried as BOTH V2 master (3 attempts) AND V1.5 (3 attempts)
+        // before routing moves off-provider. Runway: 1 success.
+        assert_eq!(fal.calls.load(Ordering::SeqCst), 6);
         assert_eq!(runway.calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
     async fn route_returns_error_when_all_fallbacks_exhausted() {
-        let kling = Arc::new(MockClient::new(Provider::Kling, 99, false));
+        // Video chain now has four entries; fal covers the first two.
+        let fal = Arc::new(MockClient::new(Provider::Fal, 99, false));
         let runway = Arc::new(MockClient::new(Provider::Runway, 99, false));
         let higgs = Arc::new(MockClient::new(Provider::Higgsfield, 99, false));
         let router = router_with(vec![
-            (Provider::Kling, kling as Arc<dyn AiClient>),
+            (Provider::Fal, fal as Arc<dyn AiClient>),
             (Provider::Runway, runway as Arc<dyn AiClient>),
             (Provider::Higgsfield, higgs as Arc<dyn AiClient>),
         ]);
@@ -616,13 +622,18 @@ mod tests {
     /// ZERO calls on the fallback.
     #[tokio::test]
     async fn route_does_not_retry_or_fall_back_on_job_already_submitted() {
-        let kling = Arc::new(MockClient::failing_with(
-            Provider::Kling,
+        // Video primary is now `Model::FalKlingV2Master` — same provider
+        // (`Provider::Fal`) covers both V2 master and V1.5 fallback, but
+        // under JobAlreadySubmitted the router must stop immediately and
+        // NOT advance to any fallback — so the single Fal MockClient
+        // should record exactly ONE call.
+        let fal = Arc::new(MockClient::failing_with(
+            Provider::Fal,
             ProviderError::JobAlreadySubmitted("task-abc still pending".into()),
         ));
         let runway = Arc::new(MockClient::new(Provider::Runway, 0, false));
         let router = router_with(vec![
-            (Provider::Kling, kling.clone() as Arc<dyn AiClient>),
+            (Provider::Fal, fal.clone() as Arc<dyn AiClient>),
             (Provider::Runway, runway.clone() as Arc<dyn AiClient>),
         ]);
         let err = router
@@ -643,9 +654,10 @@ mod tests {
             ),
             "expected JobAlreadySubmitted, got {err:?}"
         );
-        // CRITICAL: only ONE call on the primary — no in-model retry.
-        assert_eq!(kling.calls.load(Ordering::SeqCst), 1);
-        // CRITICAL: ZERO calls on the fallback — no cross-model fallback.
+        // CRITICAL: only ONE call on the primary — no in-model retry AND
+        // no cross-model fallback (even though V1.5 is also Provider::Fal).
+        assert_eq!(fal.calls.load(Ordering::SeqCst), 1);
+        // CRITICAL: ZERO calls on the off-provider fallback.
         assert_eq!(runway.calls.load(Ordering::SeqCst), 0);
     }
 }

@@ -13,8 +13,9 @@
 //! Exposes:
 //! - `generate_from_text(prompt, duration_s?)` — routes
 //!   [`TaskKind::TextToVideo`] to
-//!   [`Model::Kling20`](crate::ai_router::Model::Kling20) with
-//!   Runway + Higgsfield as fallbacks.
+//!   [`Model::FalKlingV2Master`](crate::ai_router::Model::FalKlingV2Master)
+//!   with `FalKlingV15` + Runway + Higgsfield as fallbacks
+//!   (Variante A: Kling via fal.ai aggregator).
 //! - `generate_from_image(image_url, prompt?, duration_s?)` — routes
 //!   [`TaskKind::ImageToVideo`] along the same chain.
 //!

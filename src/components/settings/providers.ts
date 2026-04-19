@@ -26,7 +26,7 @@ export const PROVIDERS: readonly ProviderDef[] = [
   },
   {
     id: "kling",
-    label: "Kling AI Video",
+    label: "Kling AI Video (direct — optional, fal handles Kling by default)",
     plan: "Subscription (Pro/Max)",
     helpUrl: "https://app.klingai.com/global/",
   },
@@ -62,7 +62,7 @@ export const PROVIDERS: readonly ProviderDef[] = [
   },
   {
     id: "fal",
-    label: "fal.ai (images)",
+    label: "fal.ai (images + Kling video)",
     plan: "Pay-per-Use",
     helpUrl: "https://fal.ai/dashboard/keys",
   },

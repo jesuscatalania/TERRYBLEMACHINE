@@ -126,6 +126,11 @@ pub fn cost_cents_for(model: Model) -> u64 {
         Model::FalSdxl => 1, // ≈ $0.003, rounded up to 1¢
         Model::FalRealEsrgan => 1,
         Model::FalFluxFill => 3,
+        // Kling via fal.ai aggregator — pay-per-use, billed by clip length.
+        // Rough per-5s clip list prices (2026-04): V1.5 standard ≈ $0.15
+        // → 15¢; V2 master ≈ $0.30 → 30¢.
+        Model::FalKlingV15 => 15,
+        Model::FalKlingV2Master => 30,
         Model::ReplicateFluxDev => 3,
         // Depth-Anything v2 large on Replicate: ≈ $0.008 per prediction,
         // rounded up to 1¢.
@@ -543,6 +548,8 @@ mod tests {
         assert!(cost_cents_for(Model::ShotstackMontage) > 0);
         assert!(cost_cents_for(Model::FalFluxPro) > 0);
         assert!(cost_cents_for(Model::Kling20) > 0);
+        assert!(cost_cents_for(Model::FalKlingV15) > 0);
+        assert!(cost_cents_for(Model::FalKlingV2Master) > 0);
         assert!(cost_cents_for(Model::ReplicateFluxDev) > 0);
     }
 
