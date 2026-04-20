@@ -4,7 +4,8 @@
  *
  * Spawned by the Rust backend (`website_analyzer::PlaywrightUrlAnalyzer`)
  * to render an arbitrary URL in headless Chromium and extract enough
- * style + layout signal for the code generator to mirror.
+ * style + layout + content signal for the code generator to mirror
+ * ("copy this site 1:1" prompts).
  *
  * Usage:
  *   node scripts/url_analyzer.mjs <url> [--screenshot=<path>] [--assets-dir=<dir>]
@@ -16,9 +17,20 @@
  * sources are downloaded into that directory (created if missing). Each
  * download is capped at a safe filename length; failures are swallowed so
  * a single broken asset never breaks the overall analysis.
+ *
+ * Auto-screenshot: even when `--screenshot` is not provided the analyzer
+ * saves a full-page PNG under `os.tmpdir()/tm-analyze-<uuid>/screenshot.png`
+ * so the code generator always has visual context to reference.
+ *
+ * Verified against example.com: new fields present —
+ *   hero_text, nav_items, section_headings, paragraph_sample, cta_labels,
+ *   detected_features (has_canvas/has_video/has_form/has_iframe/has_webgl/
+ *   has_three_js), typography, image_urls, color_roles (bg/fg/accent).
  */
 
+import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import { chromium } from "playwright";
@@ -133,26 +145,29 @@ async function main() {
     const status = resp ? resp.status() : 0;
 
     // Extract everything we need in a single page.evaluate to minimise
-    // round-trips. Returns an object with all the fields we want.
+    // round-trips. Returns an object with all the fields we want. Keeping
+    // this in one call avoids Playwright's per-eval serialization overhead
+    // — the return shape is already shallow (strings/bools/small arrays).
     const extracted = await page.evaluate(() => {
-      // Dominant colors — scan all elements' background-color + color.
-      const counts = new Map();
-      function bump(k) {
-        if (!k || k === "rgba(0, 0, 0, 0)" || k === "transparent") return;
-        counts.set(k, (counts.get(k) || 0) + 1);
-      }
       const all = document.querySelectorAll("*");
+
+      // ── Dominant colors — scan all elements' background-color + color ─
+      const colorCounts = new Map();
+      function bumpColor(k) {
+        if (!k || k === "rgba(0, 0, 0, 0)" || k === "transparent") return;
+        colorCounts.set(k, (colorCounts.get(k) || 0) + 1);
+      }
       for (const el of all) {
         const cs = getComputedStyle(el);
-        bump(cs.backgroundColor);
-        bump(cs.color);
+        bumpColor(cs.backgroundColor);
+        bumpColor(cs.color);
       }
-      const sortedColors = [...counts.entries()]
+      const sortedColors = [...colorCounts.entries()]
         .sort((a, b) => b[1] - a[1])
         .slice(0, 8)
         .map(([k]) => k);
 
-      // Fonts
+      // ── Fonts ───────────────────────────────────────────────────────
       const fontSet = new Set();
       for (const el of all) {
         const cs = getComputedStyle(el);
@@ -161,7 +176,7 @@ async function main() {
       }
       const fonts = [...fontSet].slice(0, 8);
 
-      // Spacing values (common padding/margin)
+      // ── Spacing values (common padding/margin) ──────────────────────
       const spacing = new Map();
       for (const el of all) {
         const cs = getComputedStyle(el);
@@ -177,7 +192,7 @@ async function main() {
         .slice(0, 8)
         .map(([k]) => k);
 
-      // Layout — crude: count display:grid vs display:flex usage
+      // ── Layout — crude: count display:grid vs display:flex usage ────
       let grid = 0;
       let flex = 0;
       for (const el of all) {
@@ -187,11 +202,9 @@ async function main() {
       }
       const layout = grid > flex ? "grid" : flex > 0 ? "flex" : "other";
 
-      // CSS custom properties on :root
+      // ── CSS custom properties on :root ──────────────────────────────
       const rootStyle = getComputedStyle(document.documentElement);
       const customProps = {};
-      // `rootStyle` is not iterable by default for custom props, but we
-      // can scan through its length using item() for "--*" names.
       for (let i = 0; i < rootStyle.length; i++) {
         const name = rootStyle.item(i);
         if (name?.startsWith("--")) {
@@ -203,6 +216,118 @@ async function main() {
       const description =
         document.querySelector('meta[name="description"]')?.getAttribute("content") || null;
 
+      // ── Content signals ─────────────────────────────────────────────
+      const trim = (s, cap) => (s || "").trim().slice(0, cap);
+
+      const h1 = document.querySelector("h1");
+      const hero_text = h1 ? trim(h1.textContent, 200) : "";
+
+      // Nav links — prefer <nav>, fall back to <header>.
+      const navAnchors = document.querySelectorAll("nav a, header a");
+      const nav_items = [];
+      const seenNav = new Set();
+      for (const a of navAnchors) {
+        const t = trim(a.textContent, 60);
+        if (!t || seenNav.has(t)) continue;
+        seenNav.add(t);
+        nav_items.push(t);
+        if (nav_items.length >= 8) break;
+      }
+
+      const section_headings = [];
+      for (const h of document.querySelectorAll("h2")) {
+        const t = trim(h.textContent, 140);
+        if (t) section_headings.push(t);
+        if (section_headings.length >= 12) break;
+      }
+
+      // Paragraph sample — first 2-3 visible <p> with real text.
+      const paragraph_sample = [];
+      for (const p of document.querySelectorAll("p")) {
+        const cs = getComputedStyle(p);
+        if (cs.display === "none" || cs.visibility === "hidden") continue;
+        const t = trim(p.textContent, 300);
+        if (t.length >= 20) paragraph_sample.push(t);
+        if (paragraph_sample.length >= 3) break;
+      }
+
+      // CTA labels — <button>, role=button, or <a class*=button>.
+      const cta_labels = [];
+      const seenCta = new Set();
+      const ctaNodes = document.querySelectorAll(
+        'button, [role="button"], a[class*="button" i], a[class*="btn" i], a[class*="cta" i]',
+      );
+      for (const el of ctaNodes) {
+        const t = trim(el.textContent, 80);
+        if (!t || seenCta.has(t)) continue;
+        seenCta.add(t);
+        cta_labels.push(t);
+        if (cta_labels.length >= 6) break;
+      }
+
+      // ── Feature detection ───────────────────────────────────────────
+      const canvas = document.querySelector("canvas");
+      let has_webgl = false;
+      if (canvas) {
+        try {
+          has_webgl =
+            !!canvas.getContext("webgl") ||
+            !!canvas.getContext("experimental-webgl") ||
+            !!canvas.getContext("webgl2");
+        } catch {
+          has_webgl = false;
+        }
+      }
+      const detected_features = {
+        has_canvas: !!canvas,
+        has_video: !!document.querySelector("video"),
+        has_form: !!document.querySelector("form"),
+        has_iframe: !!document.querySelector("iframe"),
+        has_webgl,
+        has_three_js: typeof window.THREE !== "undefined",
+      };
+
+      // ── Typography hierarchy — most-used (size, weight, family) ─────
+      const typoCounts = new Map();
+      for (const el of all) {
+        // Only count elements that actually render text.
+        const textLen = (el.textContent || "").trim().length;
+        if (textLen < 3) continue;
+        const cs = getComputedStyle(el);
+        const size = cs.fontSize;
+        const weight = cs.fontWeight;
+        const family = (cs.fontFamily || "").split(",")[0]?.trim().replace(/"/g, "") || "";
+        if (!size || !weight || !family) continue;
+        const key = `${size}|${weight}|${family}`;
+        typoCounts.set(key, (typoCounts.get(key) || 0) + 1);
+      }
+      const typography = [...typoCounts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4)
+        .map(([k]) => {
+          const [size, weight, family] = k.split("|");
+          return { size, weight, family };
+        });
+
+      // ── Image URLs (absolute) ───────────────────────────────────────
+      const image_urls = [];
+      const seenImg = new Set();
+      for (const img of document.querySelectorAll("img[src]")) {
+        const s = img.src;
+        if (!s || seenImg.has(s)) continue;
+        seenImg.add(s);
+        image_urls.push(s);
+        if (image_urls.length >= 12) break;
+      }
+
+      // ── Color roles (semantic) ──────────────────────────────────────
+      const bodyCs = getComputedStyle(document.body || document.documentElement);
+      const bg = bodyCs.backgroundColor || null;
+      const fg = bodyCs.color || null;
+      const skip = new Set([bg, fg, "rgba(0, 0, 0, 0)", "transparent"]);
+      const accent = sortedColors.find((c) => !skip.has(c)) || null;
+      const color_roles = { bg, fg, accent };
+
       return {
         title,
         description,
@@ -211,13 +336,34 @@ async function main() {
         spacing: topSpacing,
         customProperties: customProps,
         layout,
+        hero_text,
+        nav_items,
+        section_headings,
+        paragraph_sample,
+        cta_labels,
+        detected_features,
+        typography,
+        image_urls,
+        color_roles,
       };
     });
 
+    // ── Screenshot ──────────────────────────────────────────────────────
+    // Always take a full-page screenshot. If the caller provided an explicit
+    // `--screenshot=<path>` we honour it; otherwise we save to a dedicated
+    // temp directory so the code generator has a reference even for ad-hoc
+    // analyses. Failures fall through to null so a single screenshot hiccup
+    // doesn't kill the whole analysis.
     let screenshotPath = null;
-    if (screenshot) {
-      await page.screenshot({ path: screenshot, fullPage: false });
-      screenshotPath = screenshot;
+    try {
+      const target =
+        screenshot ||
+        path.join(os.tmpdir(), `tm-analyze-${crypto.randomUUID()}`, "screenshot.png");
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await page.screenshot({ path: target, fullPage: true });
+      screenshotPath = target;
+    } catch (err) {
+      log("screenshot failed:", err?.message || String(err));
     }
 
     let assets = [];

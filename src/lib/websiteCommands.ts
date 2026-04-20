@@ -7,6 +7,27 @@ export interface AssetDownload {
   saved_as: string;
 }
 
+export interface DetectedFeatures {
+  has_canvas?: boolean;
+  has_video?: boolean;
+  has_form?: boolean;
+  has_iframe?: boolean;
+  has_webgl?: boolean;
+  has_three_js?: boolean;
+}
+
+export interface TypographyStyle {
+  size: string;
+  weight: string;
+  family: string;
+}
+
+export interface ColorRoles {
+  bg?: string | null;
+  fg?: string | null;
+  accent?: string | null;
+}
+
 export interface AnalysisResult {
   url: string;
   status: number;
@@ -19,6 +40,17 @@ export interface AnalysisResult {
   layout: string;
   screenshotPath?: string | null;
   assets?: AssetDownload[];
+
+  // Deep-analysis fields (all optional — older cached analyses may omit them).
+  hero_text?: string | null;
+  nav_items?: string[];
+  section_headings?: string[];
+  paragraph_sample?: string[];
+  cta_labels?: string[];
+  detected_features?: DetectedFeatures;
+  typography?: TypographyStyle[];
+  image_urls?: string[];
+  color_roles?: ColorRoles;
 }
 
 export interface GeneratedFile {

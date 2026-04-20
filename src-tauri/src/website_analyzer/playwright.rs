@@ -203,4 +203,85 @@ mod tests {
             Err(AnalyzerError::ParseOutput(_))
         ));
     }
+
+    #[test]
+    fn parse_sidecar_output_reads_rich_deep_analysis_fields() {
+        // Rich fixture — mirrors the full shape the updated Node sidecar
+        // now emits. Every new field populated so the #[serde(default)]
+        // contract is exercised in the populated direction.
+        // Use `r##"..."##` because the JSON body contains `"#2e6fef"` —
+        // the default `r#"..."#` raw-string delimiter would terminate early
+        // on that internal `"#` sequence.
+        let raw = r##"{
+            "url":"https://ilithya.rocks",
+            "status":200,
+            "title":"ilithya.rocks",
+            "description":"A creative portfolio",
+            "colors":["rgb(20, 20, 20)","rgb(226, 226, 226)","rgb(46, 111, 239)"],
+            "fonts":["Times","system-ui"],
+            "spacing":["16px","24px"],
+            "customProperties":{"--primary":"#2e6fef"},
+            "layout":"flex",
+            "screenshotPath":"/tmp/tm-analyze-xyz/screenshot.png",
+            "assets":[],
+            "hero_text":"WE MAKE WEIRD WEBSITES",
+            "nav_items":["Home","Work","Contact"],
+            "section_headings":["Features","Pricing","FAQ"],
+            "paragraph_sample":["First para text.","Second para text."],
+            "cta_labels":["Get started","Learn more"],
+            "detected_features":{
+                "has_canvas":true,
+                "has_video":false,
+                "has_form":false,
+                "has_iframe":false,
+                "has_webgl":true,
+                "has_three_js":true
+            },
+            "typography":[
+                {"size":"64px","weight":"700","family":"Times"},
+                {"size":"18px","weight":"400","family":"system-ui"}
+            ],
+            "image_urls":["https://ilithya.rocks/hero.jpg"],
+            "color_roles":{
+                "bg":"rgb(20, 20, 20)",
+                "fg":"rgb(226, 226, 226)",
+                "accent":"rgb(46, 111, 239)"
+            }
+        }"##;
+        let r = parse_sidecar_output(raw).unwrap();
+        assert_eq!(r.hero_text.as_deref(), Some("WE MAKE WEIRD WEBSITES"));
+        assert_eq!(r.nav_items, vec!["Home", "Work", "Contact"]);
+        assert_eq!(r.section_headings.len(), 3);
+        assert_eq!(r.paragraph_sample.len(), 2);
+        assert_eq!(r.cta_labels, vec!["Get started", "Learn more"]);
+        assert!(r.detected_features.has_canvas);
+        assert!(r.detected_features.has_webgl);
+        assert!(r.detected_features.has_three_js);
+        assert!(!r.detected_features.has_video);
+        assert_eq!(r.typography.len(), 2);
+        assert_eq!(r.typography[0].size, "64px");
+        assert_eq!(r.typography[0].weight, "700");
+        assert_eq!(r.typography[0].family, "Times");
+        assert_eq!(r.image_urls.len(), 1);
+        assert_eq!(r.color_roles.bg.as_deref(), Some("rgb(20, 20, 20)"));
+        assert_eq!(r.color_roles.fg.as_deref(), Some("rgb(226, 226, 226)"));
+        assert_eq!(r.color_roles.accent.as_deref(), Some("rgb(46, 111, 239)"));
+    }
+
+    #[test]
+    fn parse_sidecar_output_backward_compat_without_rich_fields() {
+        // Legacy fixture (what the OLD sidecar emitted). All new fields
+        // must default cleanly so cached analyses keep deserialising.
+        let raw = r#"{"url":"https://x","status":200,"title":"X","colors":[],"fonts":[],"spacing":[],"customProperties":{},"layout":"flex"}"#;
+        let r = parse_sidecar_output(raw).unwrap();
+        assert!(r.hero_text.is_none());
+        assert!(r.nav_items.is_empty());
+        assert!(r.section_headings.is_empty());
+        assert!(r.paragraph_sample.is_empty());
+        assert!(r.cta_labels.is_empty());
+        assert!(!r.detected_features.has_canvas);
+        assert!(r.typography.is_empty());
+        assert!(r.image_urls.is_empty());
+        assert!(r.color_roles.bg.is_none());
+    }
 }

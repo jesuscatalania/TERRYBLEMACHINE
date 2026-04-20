@@ -40,11 +40,80 @@ pub fn build_prompt(input: &GenerationInput, rules: Option<&TasteRules>) -> Stri
     }
 
     if let Some(analysis) = &input.reference {
+        // Rich structured block — gives Claude real signals (layout shape,
+        // content excerpts, detected features) instead of the one-line
+        // "title + colours" summary that used to produce generic output.
         let colors = analysis.colors.join(", ");
         let fonts = analysis.fonts.join(", ");
+        let nav = if analysis.nav_items.is_empty() {
+            "—".to_string()
+        } else {
+            analysis.nav_items.join(", ")
+        };
+        let sections = if analysis.section_headings.is_empty() {
+            "—".to_string()
+        } else {
+            analysis.section_headings.join(", ")
+        };
+        let ctas = if analysis.cta_labels.is_empty() {
+            "—".to_string()
+        } else {
+            analysis.cta_labels.join(", ")
+        };
+        let paragraphs = if analysis.paragraph_sample.is_empty() {
+            "—".to_string()
+        } else {
+            analysis.paragraph_sample.join(" | ")
+        };
+        let typography = if analysis.typography.is_empty() {
+            "—".to_string()
+        } else {
+            analysis
+                .typography
+                .iter()
+                .map(|t| format!("{}/{} {}", t.size, t.weight, t.family))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let bg = analysis.color_roles.bg.as_deref().unwrap_or("—");
+        let fg = analysis.color_roles.fg.as_deref().unwrap_or("—");
+        let accent = analysis.color_roles.accent.as_deref().unwrap_or("—");
+        let features = &analysis.detected_features;
+        let hero = analysis.hero_text.as_deref().unwrap_or("—");
+        let screenshot_line = match &analysis.screenshot_path {
+            Some(p) => format!(
+                "\n- Screenshot saved at: {} (not available as vision input in this call, \
+                 so use the textual signals above to approximate the design)",
+                p.display()
+            ),
+            None => String::new(),
+        };
+
         clauses.push(format!(
-            "Reference URL: {} — title \"{}\", layout \"{}\". Palette hints: [{colors}]. Fonts: [{fonts}].",
-            analysis.url, analysis.title, analysis.layout
+            "REFERENCE SITE ANALYSIS — base the generated design on these extracted signals:\n\
+             - URL: {url}\n\
+             - Title: {title}\n\
+             - Hero: {hero}\n\
+             - Nav: {nav}\n\
+             - Sections: {sections}\n\
+             - CTAs: {ctas}\n\
+             - Paragraph samples: {paragraphs}\n\
+             - Detected features: canvas={has_canvas}, webgl={has_webgl}, three.js={has_three_js}, \
+               video={has_video}, form={has_form}, iframe={has_iframe}\n\
+             - Typography hierarchy: {typography}\n\
+             - Color roles: bg={bg}, fg={fg}, accent={accent}\n\
+             - Raw palette: [{colors}]\n\
+             - Fonts: [{fonts}]\n\
+             - Layout shape: {layout}{screenshot_line}",
+            url = analysis.url,
+            title = analysis.title,
+            layout = analysis.layout,
+            has_canvas = features.has_canvas,
+            has_webgl = features.has_webgl,
+            has_three_js = features.has_three_js,
+            has_video = features.has_video,
+            has_form = features.has_form,
+            has_iframe = features.has_iframe,
         ));
     }
 
@@ -174,11 +243,74 @@ mod tests {
             layout: "grid".into(),
             screenshot_path: None,
             assets: Vec::new(),
+            hero_text: None,
+            nav_items: Vec::new(),
+            section_headings: Vec::new(),
+            paragraph_sample: Vec::new(),
+            cta_labels: Vec::new(),
+            detected_features: Default::default(),
+            typography: Vec::new(),
+            image_urls: Vec::new(),
+            color_roles: Default::default(),
         });
         let p = build_prompt(&i, None);
-        assert!(p.contains("Reference URL: https://stripe.com"));
+        assert!(p.contains("REFERENCE SITE ANALYSIS"));
+        assert!(p.contains("URL: https://stripe.com"));
         assert!(p.contains("Inter"));
         assert!(p.contains("grid"));
+    }
+
+    #[test]
+    fn reference_url_analysis_injects_rich_signals() {
+        use crate::website_analyzer::{ColorRoles, DetectedFeatures, TypographyStyle};
+
+        let mut i = input("site", Template::LandingPage);
+        i.reference = Some(AnalysisResult {
+            url: "https://ilithya.rocks".into(),
+            status: 200,
+            title: "ilithya.rocks".into(),
+            description: None,
+            colors: vec!["rgb(20, 20, 20)".into()],
+            fonts: vec!["Times".into()],
+            spacing: vec![],
+            custom_properties: HashMap::new(),
+            layout: "flex".into(),
+            screenshot_path: Some("/tmp/tm-analyze-xyz/screenshot.png".into()),
+            assets: Vec::new(),
+            hero_text: Some("WE MAKE WEIRD WEBSITES".into()),
+            nav_items: vec!["Home".into(), "Work".into()],
+            section_headings: vec!["Features".into()],
+            paragraph_sample: vec!["A paragraph.".into()],
+            cta_labels: vec!["Get started".into()],
+            detected_features: DetectedFeatures {
+                has_canvas: true,
+                has_webgl: true,
+                has_three_js: true,
+                ..Default::default()
+            },
+            typography: vec![TypographyStyle {
+                size: "64px".into(),
+                weight: "700".into(),
+                family: "Times".into(),
+            }],
+            image_urls: vec!["https://ilithya.rocks/hero.jpg".into()],
+            color_roles: ColorRoles {
+                bg: Some("rgb(20, 20, 20)".into()),
+                fg: Some("rgb(226, 226, 226)".into()),
+                accent: Some("rgb(46, 111, 239)".into()),
+            },
+        });
+        let p = build_prompt(&i, None);
+        assert!(p.contains("REFERENCE SITE ANALYSIS"));
+        assert!(p.contains("Hero: WE MAKE WEIRD WEBSITES"));
+        assert!(p.contains("Nav: Home, Work"));
+        assert!(p.contains("canvas=true"));
+        assert!(p.contains("webgl=true"));
+        assert!(p.contains("three.js=true"));
+        assert!(p.contains("64px/700 Times"));
+        assert!(p.contains("bg=rgb(20, 20, 20)"));
+        assert!(p.contains("accent=rgb(46, 111, 239)"));
+        assert!(p.contains("/tmp/tm-analyze-xyz/screenshot.png"));
     }
 
     #[test]

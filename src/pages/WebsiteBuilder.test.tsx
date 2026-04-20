@@ -20,14 +20,34 @@ vi.mock("@/lib/websiteCommands", () => ({
     files: [{ path: "index.html", content: "<h1>Hi</h1>" }],
   })),
   analyzeUrl: vi.fn(async () => ({
-    url: "https://stripe.com",
+    url: "https://ilithya.rocks",
     status: 200,
-    title: "Stripe",
-    colors: [],
-    fonts: [],
+    title: "ilithya.rocks",
+    colors: ["rgb(20, 20, 20)", "rgb(226, 226, 226)"],
+    fonts: ["Times"],
     spacing: [],
     customProperties: {},
-    layout: "",
+    layout: "flex",
+    hero_text: "WE MAKE WEIRD WEBSITES",
+    nav_items: ["Home", "Work"],
+    section_headings: ["Features"],
+    paragraph_sample: [],
+    cta_labels: ["Get started"],
+    detected_features: {
+      has_canvas: true,
+      has_webgl: true,
+      has_three_js: true,
+      has_video: false,
+      has_form: false,
+      has_iframe: false,
+    },
+    typography: [{ size: "64px", weight: "700", family: "Times" }],
+    image_urls: [],
+    color_roles: {
+      bg: "rgb(20, 20, 20)",
+      fg: "rgb(226, 226, 226)",
+      accent: "rgb(46, 111, 239)",
+    },
   })),
   exportWebsite: vi.fn(async () => "/tmp/export.zip"),
   modifyCodeSelection: vi.fn(async () => ({ replacement: "" })),
@@ -153,6 +173,27 @@ describe("WebsiteBuilderPage", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /^generate$/i }));
     await waitFor(() => expect(screen.getByTestId("refine-panel")).toBeInTheDocument());
+  });
+
+  it("renders the rich analysis panel with hero text + feature badges after analyze", async () => {
+    renderPage();
+    fireEvent.change(screen.getByLabelText(/reference url/i), {
+      target: { value: "https://ilithya.rocks" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+    // Panel appears once analyzeUrl resolves — collapsed by default with
+    // the summary line visible.
+    await waitFor(() => expect(screen.getByTestId("analysis-panel")).toBeInTheDocument());
+    // Summary text lists the section count + detected features.
+    expect(screen.getByText(/ilithya\.rocks/)).toBeInTheDocument();
+    // Expand to reveal the rich content.
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    // Hero text
+    expect(screen.getByText("WE MAKE WEIRD WEBSITES")).toBeInTheDocument();
+    // Feature pills — each detected feature renders a dedicated badge.
+    expect(screen.getByTestId("feature-badge-canvas")).toBeInTheDocument();
+    expect(screen.getByTestId("feature-badge-webgl")).toBeInTheDocument();
+    expect(screen.getByTestId("feature-badge-three.js")).toBeInTheDocument();
   });
 
   it("calls refineWebsite with the current project and trimmed instruction", async () => {

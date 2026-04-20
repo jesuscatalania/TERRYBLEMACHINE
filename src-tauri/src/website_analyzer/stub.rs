@@ -42,6 +42,15 @@ fn default_result(url: &str) -> AnalysisResult {
         layout: "other".to_string(),
         screenshot_path: None,
         assets: Vec::new(),
+        hero_text: None,
+        nav_items: Vec::new(),
+        section_headings: Vec::new(),
+        paragraph_sample: Vec::new(),
+        cta_labels: Vec::new(),
+        detected_features: Default::default(),
+        typography: Vec::new(),
+        image_urls: Vec::new(),
+        color_roles: Default::default(),
     }
 }
 
@@ -92,6 +101,15 @@ mod tests {
             layout: "grid".into(),
             screenshot_path: None,
             assets: Vec::new(),
+            hero_text: None,
+            nav_items: Vec::new(),
+            section_headings: Vec::new(),
+            paragraph_sample: Vec::new(),
+            cta_labels: Vec::new(),
+            detected_features: Default::default(),
+            typography: Vec::new(),
+            image_urls: Vec::new(),
+            color_roles: Default::default(),
         };
         a.seed("https://foo", seeded.clone());
         let r = a.analyze("https://foo", None, None).await.unwrap();
@@ -115,6 +133,15 @@ mod tests {
                 layout: "other".into(),
                 screenshot_path: None,
                 assets: Vec::new(),
+                hero_text: None,
+                nav_items: Vec::new(),
+                section_headings: Vec::new(),
+                paragraph_sample: Vec::new(),
+                cta_labels: Vec::new(),
+                detected_features: Default::default(),
+                typography: Vec::new(),
+                image_urls: Vec::new(),
+                color_roles: Default::default(),
             },
         );
         a.force_error("playwright crashed");

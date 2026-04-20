@@ -1,4 +1,4 @@
-import { ExternalLink, Laptop, Smartphone, Tablet } from "lucide-react";
+import { ChevronDown, ChevronRight, ExternalLink, Laptop, Smartphone, Tablet } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
@@ -237,21 +237,7 @@ export function WebsiteBuilderPage() {
             {analyzing ? "Analyzing…" : "Analyze"}
           </Button>
         </div>
-        {analysis ? (
-          <div className="rounded-xs border border-neutral-dark-700 bg-neutral-dark-900 p-3 text-2xs">
-            <div className="font-mono text-accent-500 uppercase tracking-label">
-              Analyzed · {analysis.title || analysis.url}
-            </div>
-            <div className="mt-1 text-neutral-dark-300">
-              Colors: {analysis.colors.slice(0, 6).join(", ") || "—"}
-              {" — "}
-              Fonts: {analysis.fonts.slice(0, 3).join(", ") || "—"}
-              {analysis.assets && analysis.assets.length > 0
-                ? ` — Assets: ${analysis.assets.length}`
-                : ""}
-            </div>
-          </div>
-        ) : null}
+        {analysis ? <AnalysisPanel analysis={analysis} /> : null}
         <Textarea
           id="website-brief"
           label="Describe the site"
@@ -430,6 +416,275 @@ interface DeviceButtonProps {
   onClick: () => void;
   icon: React.ReactNode;
   label: string;
+}
+
+// ─── Analysis Panel ────────────────────────────────────────────────────
+//
+// Rich, collapsible view of everything the URL analyzer extracted.
+// Collapsed state: a single-line summary badge. Expanded state: screenshot
+// thumbnail, copy excerpts (hero/nav/sections/CTAs), color swatches,
+// typography samples rendered in-style, detected-feature pills, and raw
+// details (spacing, CSS custom properties, image URLs).
+//
+// Kept inline in WebsiteBuilder.tsx to avoid splitting state (analysis + the
+// collapse toggle both live in this page) across feature modules.
+
+interface AnalysisPanelProps {
+  analysis: AnalysisResult;
+}
+
+function AnalysisPanel({ analysis }: AnalysisPanelProps) {
+  const [expanded, setExpanded] = useState(false);
+
+  const features = analysis.detected_features ?? {};
+  const featureBadges: string[] = [];
+  if (features.has_canvas) featureBadges.push("Canvas");
+  if (features.has_webgl) featureBadges.push("WebGL");
+  if (features.has_three_js) featureBadges.push("Three.js");
+  if (features.has_video) featureBadges.push("Video");
+  if (features.has_form) featureBadges.push("Form");
+  if (features.has_iframe) featureBadges.push("Iframe");
+
+  const summaryBits: string[] = [];
+  if (analysis.colors.length) summaryBits.push(`${analysis.colors.length} colors`);
+  if (analysis.section_headings?.length)
+    summaryBits.push(`${analysis.section_headings.length} sections`);
+  if (featureBadges.length) summaryBits.push(`detected: ${featureBadges.join(", ").toLowerCase()}`);
+
+  return (
+    <div
+      className="rounded-xs border border-neutral-dark-700 bg-neutral-dark-900 text-2xs"
+      data-testid="analysis-panel"
+    >
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center gap-2 p-3 text-left"
+        aria-expanded={expanded}
+      >
+        {expanded ? (
+          <ChevronDown className="h-3 w-3 text-neutral-dark-400" strokeWidth={1.5} />
+        ) : (
+          <ChevronRight className="h-3 w-3 text-neutral-dark-400" strokeWidth={1.5} />
+        )}
+        <span className="font-mono text-accent-500 uppercase tracking-label">
+          Analyzed · {analysis.title || analysis.url}
+        </span>
+        {summaryBits.length ? (
+          <span className="truncate text-neutral-dark-400">· {summaryBits.join(" · ")}</span>
+        ) : null}
+      </button>
+
+      {expanded ? (
+        <div className="flex flex-col gap-4 border-neutral-dark-700 border-t p-3">
+          {/* Screenshot thumbnail */}
+          {analysis.screenshotPath ? (
+            <div className="flex flex-col gap-1">
+              <span className="font-mono text-2xs text-neutral-dark-500 uppercase tracking-label">
+                Screenshot
+              </span>
+              {/* The Tauri asset protocol isn't available in plain browsers /
+                  the test DOM, so the <img> only renders when Tauri has
+                  rewritten `file://` access. We leave it as a file:// path
+                  and let the asset loader fail silently in non-Tauri hosts. */}
+              <img
+                src={
+                  analysis.screenshotPath.startsWith("file://")
+                    ? analysis.screenshotPath
+                    : `file://${analysis.screenshotPath}`
+                }
+                alt="Reference screenshot"
+                style={{ width: 180 }}
+                className="rounded-xs border border-neutral-dark-700"
+              />
+              <span className="truncate font-mono text-neutral-dark-500">
+                {analysis.screenshotPath}
+              </span>
+            </div>
+          ) : null}
+
+          {/* Copy excerpts */}
+          <div className="grid grid-cols-2 gap-3">
+            {analysis.hero_text ? (
+              <AnalysisSection label="Hero">
+                <p className="text-neutral-dark-200">{analysis.hero_text}</p>
+              </AnalysisSection>
+            ) : null}
+            {analysis.nav_items?.length ? (
+              <AnalysisSection label="Nav">
+                <ul className="list-disc pl-4 text-neutral-dark-300">
+                  {analysis.nav_items.map((n) => (
+                    <li key={n}>{n}</li>
+                  ))}
+                </ul>
+              </AnalysisSection>
+            ) : null}
+            {analysis.section_headings?.length ? (
+              <AnalysisSection label="Sections">
+                <ul className="list-disc pl-4 text-neutral-dark-300">
+                  {analysis.section_headings.map((s) => (
+                    <li key={s}>{s}</li>
+                  ))}
+                </ul>
+              </AnalysisSection>
+            ) : null}
+            {analysis.cta_labels?.length ? (
+              <AnalysisSection label="CTAs">
+                <ul className="list-disc pl-4 text-neutral-dark-300">
+                  {analysis.cta_labels.map((c) => (
+                    <li key={c}>{c}</li>
+                  ))}
+                </ul>
+              </AnalysisSection>
+            ) : null}
+          </div>
+
+          {/* Color swatches */}
+          {analysis.colors.length || analysis.color_roles ? (
+            <AnalysisSection label="Colors">
+              <div className="flex flex-wrap gap-1.5">
+                {analysis.color_roles?.bg ? (
+                  <Swatch color={analysis.color_roles.bg} label="bg" />
+                ) : null}
+                {analysis.color_roles?.fg ? (
+                  <Swatch color={analysis.color_roles.fg} label="fg" />
+                ) : null}
+                {analysis.color_roles?.accent ? (
+                  <Swatch color={analysis.color_roles.accent} label="accent" />
+                ) : null}
+                {analysis.colors.map((c) => (
+                  <Swatch key={c} color={c} />
+                ))}
+              </div>
+            </AnalysisSection>
+          ) : null}
+
+          {/* Typography samples (rendered in-style) */}
+          {analysis.typography?.length ? (
+            <AnalysisSection label="Typography">
+              <div className="flex flex-col gap-1 text-neutral-dark-200">
+                {analysis.typography.map((t) => (
+                  <div
+                    key={`${t.size}-${t.weight}-${t.family}`}
+                    style={{
+                      fontSize: t.size,
+                      fontWeight: t.weight,
+                      fontFamily: t.family,
+                      lineHeight: 1.1,
+                    }}
+                  >
+                    {t.size} / {t.weight} · {t.family}
+                  </div>
+                ))}
+              </div>
+            </AnalysisSection>
+          ) : null}
+
+          {/* Feature pills */}
+          {featureBadges.length ? (
+            <AnalysisSection label="Detected">
+              <div className="flex flex-wrap gap-1.5">
+                {featureBadges.map((b) => (
+                  <span
+                    key={b}
+                    className="rounded-xs border border-accent-500/40 bg-accent-500/10 px-1.5 py-0.5 font-mono text-2xs text-accent-500 uppercase tracking-label"
+                    data-testid={`feature-badge-${b.toLowerCase()}`}
+                  >
+                    {b}
+                  </span>
+                ))}
+              </div>
+            </AnalysisSection>
+          ) : null}
+
+          {/* Raw details */}
+          <RawDetails analysis={analysis} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function AnalysisSection({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="font-mono text-2xs text-neutral-dark-500 uppercase tracking-label">
+        {label}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+function Swatch({ color, label }: { color: string; label?: string }) {
+  return (
+    <div className="flex items-center gap-1" title={label ? `${label} ${color}` : color}>
+      <span
+        className="inline-block h-4 w-4 rounded-xs border border-neutral-dark-700"
+        style={{ backgroundColor: color }}
+      />
+      <span className="font-mono text-neutral-dark-400">
+        {label ? `${label}: ` : ""}
+        {color}
+      </span>
+    </div>
+  );
+}
+
+function RawDetails({ analysis }: { analysis: AnalysisResult }) {
+  const [showImages, setShowImages] = useState(false);
+  const imgs = analysis.image_urls ?? [];
+  const spacing = analysis.spacing ?? [];
+  const customProps = Object.entries(analysis.customProperties ?? {});
+
+  if (!imgs.length && !spacing.length && !customProps.length) return null;
+
+  return (
+    <details className="group">
+      <summary className="cursor-pointer font-mono text-2xs text-neutral-dark-500 uppercase tracking-label">
+        Raw details
+      </summary>
+      <div className="mt-2 flex flex-col gap-2 text-neutral-dark-300">
+        {spacing.length ? (
+          <div>
+            <span className="font-mono text-neutral-dark-500">Spacing: </span>
+            {spacing.join(", ")}
+          </div>
+        ) : null}
+        {customProps.length ? (
+          <div>
+            <span className="font-mono text-neutral-dark-500">Custom props: </span>
+            {customProps
+              .slice(0, 8)
+              .map(([k, v]) => `${k}=${v}`)
+              .join("; ")}
+            {customProps.length > 8 ? ` (+${customProps.length - 8} more)` : ""}
+          </div>
+        ) : null}
+        {imgs.length ? (
+          <div>
+            <span className="font-mono text-neutral-dark-500">Images ({imgs.length}): </span>
+            <ul className="mt-1 flex flex-col gap-0.5 break-all">
+              {imgs.slice(0, showImages ? imgs.length : 3).map((u) => (
+                <li key={u} className="truncate font-mono text-neutral-dark-400">
+                  {u}
+                </li>
+              ))}
+            </ul>
+            {imgs.length > 3 ? (
+              <button
+                type="button"
+                className="mt-1 font-mono text-accent-500 uppercase tracking-label"
+                onClick={() => setShowImages((v) => !v)}
+              >
+                {showImages ? "show less" : `show ${imgs.length - 3} more`}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </details>
+  );
 }
 
 function DeviceButton({ active, onClick, icon, label }: DeviceButtonProps) {
