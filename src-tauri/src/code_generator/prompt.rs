@@ -80,6 +80,19 @@ Output strictly valid JSON with this shape (no prose outside JSON):
   ]
 }
 
+HARD OUTPUT CONTRACT — non-negotiable:
+- NEVER ask clarifying questions. NEVER reply with prose like \"Which page
+  should I copy? Please share a URL or screenshot.\" — the user cannot
+  respond; this is a one-shot non-interactive call.
+- If information is missing, unclear, or contradictory, pick the most
+  plausible interpretation and build something that matches the user's
+  intent as closely as possible. If no reference content is attached and
+  the brief says \"copy this site\", invent a plausible page that matches
+  the brief's theme.
+- Your response must parse as JSON with the shape above — no markdown
+  fences, no preamble, no trailing prose. The FIRST character of your
+  response must be `{`.
+
 Build rules:
 - Honor the USER BRIEF literally. If the user asks for a minimal single-section
   page (e.g. just a hero with a 3D object), produce exactly that — do not add

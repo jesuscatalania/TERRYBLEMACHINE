@@ -264,6 +264,22 @@ fn parse_llm_json(raw: &str) -> Result<LlmResponse, CodeGenError> {
         ));
     }
 
+    // Clarifying-question sniff: Claude occasionally ignores the output
+    // contract and replies with prose asking the user for more info.
+    // Detect by lack of any `{` AND prose shape, and surface a friendlier
+    // error so the user knows to enrich the brief (e.g. click Analyze
+    // on the reference URL) rather than think the parser itself is broken.
+    if !trimmed.contains('{') && looks_like_prose_question(trimmed) {
+        let preview: String = trimmed.chars().take(300).collect();
+        return Err(CodeGenError::ParseResponse(format!(
+            "Claude asked a clarifying question instead of generating the project. \
+             This usually means the brief lacks context — e.g. you pasted a Reference \
+             URL but didn't click Analyze, so Claude never saw the page contents. \
+             Try again with more detail in the brief, or click Analyze first.\n\n\
+             Claude said: {preview}"
+        )));
+    }
+
     // Try candidates in order of specificity; serialize-only errors on
     // the most promising candidate surface to the user.
     let candidates = build_parse_candidates(trimmed);
@@ -355,6 +371,31 @@ fn extract_fenced_json(s: &str) -> Option<&str> {
     extract_fenced(s, "```json")
 }
 
+/// Heuristic: does the string look like a human-style clarifying question
+/// in English or German rather than generated code? Used to give the user
+/// a clearer error than a raw serde failure.
+fn looks_like_prose_question(s: &str) -> bool {
+    if s.contains('?') {
+        return true;
+    }
+    let lower = s.to_ascii_lowercase();
+    // German + English prompts Claude typically uses when stalling.
+    const SIGNALS: &[&str] = &[
+        "bitte teile",
+        "bitte gib",
+        "welche seite",
+        "welche url",
+        "please share",
+        "please provide",
+        "which page",
+        "which url",
+        "could you clarify",
+        "ich brauche mehr",
+        "i need more",
+    ];
+    SIGNALS.iter().any(|s| lower.contains(s))
+}
+
 fn provider_to_gen_err(err: ProviderError) -> CodeGenError {
     CodeGenError::Provider(err.to_string())
 }
@@ -366,6 +407,35 @@ mod tests {
     use crate::code_generator::templates::Template;
     use async_trait::async_trait;
     use serde_json::json;
+
+    #[test]
+    fn prose_question_is_detected_german() {
+        assert!(looks_like_prose_question(
+            "Welche Seite soll ich kopieren? Bitte teile mir die URL mit."
+        ));
+    }
+
+    #[test]
+    fn prose_question_is_detected_english() {
+        assert!(looks_like_prose_question(
+            "Which page should I clone? Please share a URL."
+        ));
+    }
+
+    #[test]
+    fn valid_json_is_not_a_prose_question() {
+        assert!(!looks_like_prose_question(
+            r#"{"summary":"x","files":[]}"#
+        ));
+    }
+
+    #[test]
+    fn parse_emits_friendly_error_on_clarifying_question() {
+        let raw = "Welche Seite soll ich kopieren? Bitte teile mir die URL mit.";
+        let err = parse_llm_json(raw).unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(msg.contains("clarifying question"), "got: {msg}");
+    }
 
     struct MockClient {
         text: String,
