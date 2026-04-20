@@ -54,6 +54,24 @@ fn greet(name: &str) -> String {
     format!("Hello, {name}! You've been greeted from Rust!")
 }
 
+/// Walk up from `start` until we find a directory that looks like the
+/// project root (contains both `scripts/` and `package.json`). Returns
+/// `start` unchanged when nothing matches — the caller's `exists()`
+/// check will then log a clear warning.
+fn resolve_project_root(start: &std::path::Path) -> std::path::PathBuf {
+    let mut cur = start.to_path_buf();
+    for _ in 0..6 {
+        if cur.join("scripts").is_dir() && cur.join("package.json").is_file() {
+            return cur;
+        }
+        match cur.parent() {
+            Some(p) => cur = p.to_path_buf(),
+            None => break,
+        }
+    }
+    start.to_path_buf()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let keystore: Arc<dyn keychain::KeyStore> = Arc::from(keychain::default_store());
@@ -99,8 +117,14 @@ pub fn run() {
             // follow-up. Until then we at least log a loud warning so the
             // failure mode isn't silent at first use.
             //   FU #145 — revisit when we wire up resource bundling.
-            let base_dir = std::env::current_dir()
+            let cwd = std::env::current_dir()
                 .unwrap_or_else(|_| std::path::PathBuf::from("."));
+            // In `pnpm tauri dev`, cwd is src-tauri/. All sidecar scripts +
+            // meingeschmack/ live at the project root one level up. Detect
+            // by probing for a package.json alongside scripts/ and hop up
+            // when we're in src-tauri. Falls back to cwd if neither shape
+            // matches (bundled app — resource resolution is FU #145).
+            let base_dir = resolve_project_root(&cwd);
 
             let meingeschmack_root = base_dir.join("meingeschmack");
             if !meingeschmack_root.exists() {
