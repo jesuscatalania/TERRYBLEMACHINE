@@ -218,48 +218,141 @@ Respond with the JSON object now."
 
 fn parse_refine_json(raw: &str) -> Result<RefineLlmResponse, CodeGenError> {
     let trimmed = raw.trim();
-    let candidate = if let Some(inside) = extract_fenced_json(trimmed) {
-        inside
-    } else {
-        match trimmed.find('{') {
-            Some(idx) => &trimmed[idx..],
-            None => trimmed,
-        }
-    };
+    if trimmed.is_empty() {
+        return Err(CodeGenError::ParseResponse(
+            "Claude returned empty refine response".into(),
+        ));
+    }
 
-    serde_json::from_str::<RefineLlmResponse>(candidate).map_err(|e| {
-        let preview: String = trimmed.chars().take(400).collect();
-        CodeGenError::ParseResponse(format!("parse: {e} / body: {preview}"))
-    })
+    let candidates = build_parse_candidates(trimmed);
+    let mut last_error: Option<serde_json::Error> = None;
+    for candidate in &candidates {
+        match serde_json::from_str::<RefineLlmResponse>(candidate) {
+            Ok(parsed) => return Ok(parsed),
+            Err(e) => last_error = Some(e),
+        }
+    }
+    let preview: String = trimmed.chars().take(400).collect();
+    let err_msg = match last_error {
+        Some(e) => format!("{e}"),
+        None => "unknown".into(),
+    };
+    Err(CodeGenError::ParseResponse(format!(
+        "{err_msg}\n--- Claude raw refine output (first 400 chars) ---\n{preview}"
+    )))
 }
 
 /// Extract the JSON body from whatever Claude returned. Handles:
 /// - Pure JSON.
-/// - JSON wrapped in ```json fences.
+/// - JSON wrapped in ```json fences OR plain ``` fences.
 /// - JSON preceded by a one-line preamble ("Here is your project:").
+/// - JSON with trailing prose after the closing `}`.
+///
+/// On failure, includes a preview of Claude's raw response in the error
+/// so live-test toasts show WHY the parse failed, not just "expected
+/// value at line 1 column 1".
 fn parse_llm_json(raw: &str) -> Result<LlmResponse, CodeGenError> {
     let trimmed = raw.trim();
 
-    // Prefer fenced block if present.
-    let candidate = if let Some(inside) = extract_fenced_json(trimmed) {
-        inside
-    } else {
-        // Otherwise find the first "{" and parse from there.
-        match trimmed.find('{') {
-            Some(idx) => &trimmed[idx..],
-            None => trimmed,
-        }
-    };
+    // Empty responses are a distinct failure mode (claude CLI hit an
+    // internal error or ran out of output budget) — call it out.
+    if trimmed.is_empty() {
+        return Err(CodeGenError::ParseResponse(
+            "Claude returned an empty response. Check Settings → Claude transport \
+             and confirm `claude` CLI works from your terminal."
+                .into(),
+        ));
+    }
 
-    serde_json::from_str::<LlmResponse>(candidate)
-        .map_err(|e| CodeGenError::ParseResponse(e.to_string()))
+    // Try candidates in order of specificity; serialize-only errors on
+    // the most promising candidate surface to the user.
+    let candidates = build_parse_candidates(trimmed);
+    let mut last_error: Option<serde_json::Error> = None;
+    for candidate in &candidates {
+        match serde_json::from_str::<LlmResponse>(candidate) {
+            Ok(parsed) => return Ok(parsed),
+            Err(e) => last_error = Some(e),
+        }
+    }
+
+    let preview: String = trimmed.chars().take(400).collect();
+    let err_msg = match last_error {
+        Some(e) => format!("{e}"),
+        None => "unknown parse failure".to_string(),
+    };
+    Err(CodeGenError::ParseResponse(format!(
+        "{err_msg}\n--- Claude raw output (first 400 chars) ---\n{preview}"
+    )))
 }
 
-fn extract_fenced_json(s: &str) -> Option<&str> {
-    let start = s.find("```json").map(|i| i + "```json".len())?;
+/// Produce ordered candidate strings to try parsing as LlmResponse JSON.
+/// More-specific strippings come first so we don't accidentally match a
+/// nested `{` in Claude's preamble before the actual payload.
+fn build_parse_candidates(trimmed: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    // 1. ```json ... ``` fenced block.
+    if let Some(inside) = extract_fenced(trimmed, "```json") {
+        out.push(inside.to_string());
+    }
+    // 2. Plain ``` ... ``` fenced block (Claude sometimes omits `json`).
+    if let Some(inside) = extract_fenced(trimmed, "```") {
+        out.push(inside.to_string());
+    }
+    // 3. Balanced-brace extraction: from the first `{` to the matching
+    // closing `}`, so trailing prose after the JSON is tolerated.
+    if let Some(balanced) = extract_balanced_braces(trimmed) {
+        out.push(balanced);
+    }
+    // 4. Raw trimmed input — last-resort direct parse.
+    out.push(trimmed.to_string());
+    out
+}
+
+/// Extract content between a starting fence (e.g. "```json") and the next
+/// closing "```". Returns None if either fence is missing.
+fn extract_fenced<'a>(s: &'a str, opener: &str) -> Option<&'a str> {
+    let start = s.find(opener).map(|i| i + opener.len())?;
     let rest = &s[start..];
     let end = rest.find("```")?;
     Some(rest[..end].trim())
+}
+
+/// Extract substring from the first `{` to its matching `}`, handling
+/// nested braces. Returns None if no balanced pair found. Naive — does
+/// not understand strings or escapes, so a `{` inside a JSON string
+/// value could confuse it. Good enough for Claude's outputs in practice.
+fn extract_balanced_braces(s: &str) -> Option<String> {
+    let bytes = s.as_bytes();
+    let start = s.find('{')?;
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut escape = false;
+    for (i, b) in bytes.iter().enumerate().skip(start) {
+        if escape {
+            escape = false;
+            continue;
+        }
+        match *b {
+            b'\\' if in_string => escape = true,
+            b'"' => in_string = !in_string,
+            b'{' if !in_string => depth += 1,
+            b'}' if !in_string => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(s[start..=i].to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Legacy helper retained for the test harness. Same behaviour as the
+/// original single-fence-aware extractor.
+#[cfg(test)]
+fn extract_fenced_json(s: &str) -> Option<&str> {
+    extract_fenced(s, "```json")
 }
 
 fn provider_to_gen_err(err: ProviderError) -> CodeGenError {
@@ -379,7 +472,7 @@ mod tests {
         let gen = ClaudeCodeGenerator::new(client);
         let project = gen.generate(input("my prompt")).await.unwrap();
         assert!(project.prompt.contains("my prompt"));
-        assert!(project.prompt.contains("Template:"));
+        assert!(project.prompt.contains("Template default"));
     }
 
     fn seed_project() -> GeneratedProject {
