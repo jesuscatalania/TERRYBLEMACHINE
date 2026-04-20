@@ -77,7 +77,11 @@ export function DevicePreview({ files, device, debounceMs = 150 }: DevicePreview
           title="Generated website preview"
           data-testid="device-preview-iframe"
           className="h-full w-full rounded-xs border border-neutral-dark-600 bg-white"
-          sandbox="allow-same-origin"
+          // allow-scripts: React/Three.js/Tailwind CDN + inline <script type="text/babel">
+          // all need JS execution. allow-forms: in case the generated page has a form.
+          // NOT allow-same-origin: keeps the iframe sandboxed from the parent document
+          // so a hostile/buggy generated page can't reach into our app's DOM.
+          sandbox="allow-scripts allow-forms allow-popups"
         />
       </div>
     </div>
