@@ -81,16 +81,26 @@ impl UrlAnalyzer for PlaywrightUrlAnalyzer {
             .spawn()
             .map_err(|e| AnalyzerError::Spawn(e.to_string()))?;
 
+        // Read stdout AND stderr concurrently — previously we only read
+        // stdout, so any sidecar crash (missing Playwright browsers, node
+        // syntax error, unhandled rejection) produced an opaque "exit 1"
+        // with zero diagnostics in the toast. Read both, surface both.
+        let mut stdout_pipe = child.stdout.take();
+        let mut stderr_pipe = child.stderr.take();
         let run = async {
             let mut out = String::new();
-            if let Some(mut stdout) = child.stdout.take() {
-                stdout.read_to_string(&mut out).await?;
+            let mut err = String::new();
+            if let Some(mut s) = stdout_pipe.take() {
+                s.read_to_string(&mut out).await?;
+            }
+            if let Some(mut e) = stderr_pipe.take() {
+                e.read_to_string(&mut err).await?;
             }
             let status = child.wait().await?;
-            Ok::<_, std::io::Error>((status, out))
+            Ok::<_, std::io::Error>((status, out, err))
         };
 
-        let (status, out) = match timeout(self.timeout, run).await {
+        let (status, out, err) = match timeout(self.timeout, run).await {
             Ok(res) => res?,
             Err(_) => {
                 let _ = child.start_kill();
@@ -100,14 +110,25 @@ impl UrlAnalyzer for PlaywrightUrlAnalyzer {
 
         if !status.success() {
             // Even on failure the script writes a JSON error object — keep
-            // the message when present, otherwise surface the exit code.
+            // the message when present. Otherwise fall back to the first
+            // meaningful line of stderr (Playwright throws loud stack
+            // traces) and finally the bare exit code.
             if let Ok(value) = serde_json::from_str::<serde_json::Value>(out.trim()) {
                 if let Some(msg) = value.get("error").and_then(|v| v.as_str()) {
                     return Err(AnalyzerError::Sidecar(msg.to_string()));
                 }
             }
+            let stderr_trimmed = err.trim();
+            if !stderr_trimmed.is_empty() {
+                // Truncate to first 600 chars — stack traces can be long.
+                let preview: String = stderr_trimmed.chars().take(600).collect();
+                return Err(AnalyzerError::Sidecar(format!(
+                    "exit {}: {preview}",
+                    status.code().unwrap_or(-1)
+                )));
+            }
             return Err(AnalyzerError::Sidecar(format!(
-                "exit {}",
+                "exit {} (no stderr output)",
                 status.code().unwrap_or(-1)
             )));
         }
